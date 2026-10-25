@@ -44,7 +44,10 @@ class _Base(Sensor):
         joint_type = to_numpy(arr=sim.model.joint_type)
         joint_q_start = to_numpy(arr=sim.model.joint_q_start)
         joint_qd_start = to_numpy(arr=sim.model.joint_qd_start)
-        joints = [j for j in self.robot.find_joints(pattern=p.get(key="joints", default="*")) if joint_type[j] in JOINT_TYPES]
+        patterns = p.get(key="joints", default="*")
+        joints: list[int] = []
+        for pattern in [patterns] if isinstance(patterns, str) else patterns:
+            joints += [j for j in self.robot.find_joints(pattern=pattern) if joint_type[j] in JOINT_TYPES and j not in joints]
         self.names = [self.robot.joints[j] for j in joints]
         self.joint_q_idx = joint_q_start[joints]
         self.joint_qd_idx = joint_qd_start[joints]
