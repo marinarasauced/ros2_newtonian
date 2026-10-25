@@ -8,6 +8,7 @@ newtonian:
       viewer: "gl"                      # 'gl' | 'none'
       substeps: 4
       frame_rate: 60.0                  # Hz
+      warmup_steps: 420
       real_time_factor: 1.0
 
     solver:

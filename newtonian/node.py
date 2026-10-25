@@ -1,6 +1,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import signal
 import time
 
@@ -110,6 +112,9 @@ class NewtonianNode(Node):
         self.rtf = self.sim.real_time_factor
         self._rtf_window: tuple[float, float] | None = None
         self._rtf_frame = 0
+        self._stale: dict[str, Any] = {}
+        self._stale_clock: Time | None = None
+        self._stale_due: dict[str, float] | None = None
         self.timer = self.create_timer(timer_period_sec=self.sim.frame_dt / self.rtf, callback=self._on_timer, clock=RosClock(clock_type=ClockType.STEADY_TIME))
 
     def _stamp(self, sim: NewtonianSimulator) -> Time:
@@ -130,16 +135,25 @@ class NewtonianNode(Node):
             self.get_logger().info("viewer closed, shutting down ...")
             rclpy.try_shutdown()
             return
-        if not sim.stepable():
+        if sim.warmingup:
+            self._rtf_window = None
+            self._publish_stale(sim=sim)
+            sim.warmup(budget=0.5 * sim.frame_dt / self.rtf)
+        elif not sim.stepable():
             self._rtf_window = None
         else:
+            self._stale_due = None
             self._check_rtf(sim=sim)
             sim.step()
             stamp = self._stamp(sim=sim)
+            self._stale_clock = stamp
             self.clock_pub.publish(Clock(clock=stamp))
             for s in sim.sense():
-                self.publishers_[s.name].publish(s.to_msg(stamp=stamp))
-        sim.render()
+                msg = s.to_msg(stamp=stamp)
+                self._stale[s.name] = msg
+                self.publishers_[s.name].publish(msg)
+        if not sim.warmingup:
+            sim.render()
 
     def _check_rtf(self, sim: NewtonianSimulator) -> None:
         """
@@ -195,6 +209,27 @@ class NewtonianNode(Node):
             response.message = "paused" if self.sim.is_paused else "running"
         response.success = self.sim is not None
         return response
+
+    def _publish_stale(self, sim: NewtonianSimulator) -> None:
+        """
+        Publishes the last clock and the last message of each sensor again
+        """
+        if self._stale_clock is None:
+            return
+        now = time.monotonic()
+        periods = {s.name: (1.0 / s.rate if s.rate > 0.0 else sim.frame_dt) / self.rtf for s in sim.sensors}
+        if self._stale_due is None:
+            self._stale_due = {name: now + period for name, period in periods.items()}
+        ns = self._stale_clock.sec * 1_000_000_000 + self._stale_clock.nanosec + round(sim.frame_dt * 1.0e+9)
+        self._stale_clock = Time(sec=ns//1_000_000_000, nanosec=ns%1_000_000_000)
+        self.clock_pub.publish(Clock(clock=self._stale_clock))
+        for s in sim.sensors:
+            msg = self._stale.get(s.name)
+            if msg is None or now < self._stale_due[s.name]:
+                continue
+            msg.header.stamp = self._stale_clock
+            self.publishers_[s.name].publish(msg)
+            self._stale_due[s.name] = max(self._stale_due[s.name] + periods[s.name], now + 0.5 * periods[s.name])
 
     def destroy_node(self) -> None:
         """

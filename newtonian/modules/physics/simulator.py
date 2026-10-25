@@ -1,6 +1,8 @@
 
 from __future__ import annotations
 
+import time
+
 import newton
 import numpy as np
 import warp as wp
@@ -56,7 +58,7 @@ class NewtonianSimulator:
         # 'sim' parameters subtree
         p.check_keys(allowed=("sim", "solver", "environments", "robots", "inputs", "sensors"))
         s = p.subtree("sim")
-        s.check_keys(allowed=("device", "substeps", "frame_rate", "real_time_factor", "gravity", "viewer", "cuda_graph", "seed"))
+        s.check_keys(allowed=("device", "substeps", "frame_rate", "real_time_factor", "gravity", "viewer", "cuda_graph", "seed", "warmup_steps"))
 
         # warp device
         self.device = wp.get_device(s.get(key="device", default=None))
@@ -67,6 +69,7 @@ class NewtonianSimulator:
         self.frame_dt = 1.0 / self.frame_rate
         self.sim_dt = self.frame_dt / self.substeps
         self.real_time_factor = s.get_float(key="real_time_factor", default=1.0, above=0.0)
+        self.warmupsteps = s.get_int(key="warmup_steps", default=0, at_least=0)
 
         self.gravity = s.get_float(key="gravity", default=-9.81)
         self.viewer_type = s.get_choice(key="viewer", choices=("none", "gl"), default="none")
@@ -87,6 +90,7 @@ class NewtonianSimulator:
 
         # simulation
         self._is_paused = False
+        self._warmup_remaining = 0
 
         # build
         with wp.ScopedDevice(device=self.device):
@@ -163,6 +167,9 @@ class NewtonianSimulator:
         # build CUDA graph
         self._capture()
 
+        # warmup
+        self._warmup_remaining = self.warmupsteps
+
     def _capture(self) -> None:
         """
         Captures one frame of '_simulate' as a CUDA graph when the device is CUDA and when 'use_cuda_graph' is true.
@@ -181,11 +188,12 @@ class NewtonianSimulator:
         # restore simulator states to before warm up.
         self._restore()
 
-    def _simulate(self) -> None:
+    def _simulate(self, substeps: int | None = None) -> None:
         """
-        Simulates the simulator's physics.
+        Simulates 'substeps' steps of the simulator's physics.
         """
-        for i in range(self.substeps):
+        n = self.substeps if substeps is None else substeps
+        for i in range(n):
 
             # apply forces
             self.state_0.clear_forces()
@@ -198,7 +206,7 @@ class NewtonianSimulator:
 
             # step physics once
             self.solver.step(state_in=self.state_0, state_out=self.state_1, control=self.control, contacts=self.contacts, dt=self.sim_dt)
-            if self.substeps % 2 and i == self.substeps - 1:
+            if n % 2 and i == n - 1:
                 self.state_0.assign(other=self.state_1)
             else:
                 self.state_0, self.state_1 = self.state_1, self.state_0
@@ -267,6 +275,7 @@ class NewtonianSimulator:
         for item in self.plugins:
             item.reset()
         self.frame = 0
+        self._warmup_remaining = self.warmupsteps
 
     def require_contacts(self) -> None:
         """
@@ -321,3 +330,25 @@ class NewtonianSimulator:
             else:
                 self._simulate()
         self.frame += 1
+
+    @property
+    def warmingup(self) -> bool:
+        """
+        True if still warming up.
+        False otherwise.
+        """
+        return self._warmup_remaining > 0
+
+    def warmup(self, budget: float) -> None:
+        """
+        """
+        end = time.monotonic() + budget
+        with wp.ScopedDevice(device=self.device):
+            while self._warmup_remaining > 0 and time.monotonic() < end:
+                n = min(self._warmup_remaining, self.substeps)
+                if self.graph is not None and n == self.substeps:
+                    wp.capture_launch(graph=self.graph)
+                else:
+                    self._simulate(substeps=n)
+                wp.synchronize_device(device=self.device)
+                self._warmup_remaining -= n
