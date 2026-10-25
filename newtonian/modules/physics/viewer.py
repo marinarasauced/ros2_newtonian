@@ -134,7 +134,7 @@ class NewtonianViewer:
             return
         self._ui_stats = (0.0, 0.0)
         viewer.gui._render_left_panel = lambda: None    # type: ignore[method-assign]
-        viewer.gui.is_capturing = viewer.gui.is_keyboard_capturing    # type: ignore[method-assign]
+        viewer.gui.is_capturing = lambda: viewer.gui.is_available and bool(viewer.gui.ui.io.want_text_input)    # type: ignore[method-assign]
         viewer.register_ui_callback(callback=self._ui_measure, position="stats")
 
     def _ui_measure(self, imgui) -> None:
