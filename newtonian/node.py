@@ -109,6 +109,7 @@ class NewtonianNode(Node):
 
         self.rtf = self.sim.real_time_factor
         self._rtf_window: tuple[float, float] | None = None
+        self._rtf_frame = 0
         self.timer = self.create_timer(timer_period_sec=self.sim.frame_dt / self.rtf, callback=self._on_timer, clock=RosClock(clock_type=ClockType.STEADY_TIME))
 
     def _stamp(self, sim: NewtonianSimulator) -> Time:
@@ -145,6 +146,9 @@ class NewtonianNode(Node):
         Logs a warning if the real-time factor differs from the target.
         """
         now = time.monotonic()
+        if sim.frame != self._rtf_frame:
+            self._rtf_window = None
+        self._rtf_frame = sim.frame + 1
         if self._rtf_window is None:
             self._rtf_window = (now, sim.sim_time)
             return
