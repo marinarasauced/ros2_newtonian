@@ -44,10 +44,9 @@ newtonian:
       imu: {type: "imu", site: "imu", rate: 100.0, topic: "/go2/sensors/imu"}
       odom: {type: "odometry", child_frame_id: "base_link", rate: 100.0, topic: "/go2/sensors/odometry"}
       joint_states: {type: "jointstate", joints: ["FR_*", "FL_*", "RR_*", "RL_*"], rate: 100.0, topic: "/go2/sensors/jointstate"}
-      feet: {type: "contact_force", bodies: ["FL_calf", "FR_calf", "RL_calf", "RR_calf"], rate: 100.0, topic: "/go2/sensors/feet"}
+      feet: {type: "contact_scalar", shapes: ["FR", "FL", "RR", "RL"], rate: 100.0, topic: "/go2/sensors/contacts"}
 
     inputs:
-      
       joint_targets:
         type: "jointstate"
         topic: "/go2/control"
