@@ -1,0 +1,55 @@
+# Unitree Go1, from MuJoCo Menagerie. Launch with: ros2 launch newtonian sim.launch.py config:=go1
+newtonian:
+
+  ros__parameters:
+
+    sim:
+      cuda_graph: true
+      device: "cuda:0"                  # 'cpu' | 'cuda:0'
+      viewer: "gl"                      # 'gl' | 'none'
+      substeps: 2
+      frame_rate: 60.0                 # Hz
+      warmup_steps: 420
+      real_time_factor: 1.0
+
+    solver:
+      type: "mujoco"                    # 'featherstone' | 'kamino' | 'mujoco' | 'xpbd'
+
+      mujoco:
+        iterations: 50
+        ls_iterations: 50
+        cone: "elliptic"
+        impratio: 100.0
+        nconmax: 200
+        njmax: 600
+
+    environments:
+      ground: {type: "groundplane", mu: 1.0}
+
+    robots:
+      unitree_go1:
+        type: "mjcf"                    # 'mjcf' | 'urdf' | 'usd'
+        file: "package://newtonian/descriptions/quadrupeds/unitree_go1/go1.xml"
+        pose: [0.0, 0.0, -0.171, 0.0, 0.0, 0.0]
+        floating: true
+        loader_args:
+          enable_self_collisions: false
+        drives:
+          hips_thighs: {joints: ["*_hip_joint", "*_thigh_joint"], lazy: true, mode: "position_velocity", ke: 100.0, kd: 2.0, effort_limit: 23.7}
+          calves: {joints: "*_calf_joint", lazy: true, mode: "position_velocity", ke: 100.0, kd: 2.0, effort_limit: 35.55}
+        initial_joint_q:
+          "*_hip_joint": 0.0
+          "*_thigh_joint": 0.9
+          "*_calf_joint": -1.8
+
+    sensors:
+      imu: {type: "imu", site: "imu", rate: 100.0, topic: "/go1/sensors/imu"}
+      odom: {type: "odometry", child_frame_id: "base_link", rate: 100.0, topic: "/go1/sensors/odometry"}
+      joint_states: {type: "jointstate", rate: 100.0, topic: "/go1/sensors/jointstate"}
+      feet: {type: "contact_scalar", shapes: ["FR", "FL", "RR", "RL"], rate: 100.0, topic: "/go2/sensors/contacts"}
+
+    inputs:
+
+      joint_targets:
+        type: "jointstate"
+        topic: "/go1/control"
