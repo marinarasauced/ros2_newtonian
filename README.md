@@ -83,7 +83,7 @@ Install all Python dependencies into a virtual environment.
 ```zsh
 python3 -m venv ~/.virtualenvs/newtonian
 source ~/.virtualenvs/newtonian/bin/activate
-pip install -r ~/ros2_ws/src/newtonian/requirements.txt
+pip install -r ~/ros2_ws/src/newtonian/newtonian/requirements.txt
 ```
 
 Install all ROS dependencies.
