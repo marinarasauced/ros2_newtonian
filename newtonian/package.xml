@@ -13,6 +13,7 @@
   <depend>builtin_interfaces</depend>
   <depend>geometry_msgs</depend>
   <depend>nav_msgs</depend>
+  <depend>newtonian_msgs</depend>
   <depend>rosgraph_msgs</depend>
   <depend>sensor_msgs</depend>
   <depend>std_srvs</depend>

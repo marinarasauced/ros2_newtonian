@@ -49,5 +49,5 @@ newtonian:
 
     inputs:
       joint_targets:
-        type: "jointstate"
+        type: "jointcommand"
         topic: "/go2/control"
