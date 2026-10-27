@@ -69,7 +69,8 @@ sensors.imu.qos expected one of ['default', 'sensor_data'] but got 'fast'
 |---|---|---|
 | `device` | Warp default | `cpu` or `cuda:0` |
 | `viewer` | `none` | `gl` (OpenGL window) or `none` |
-| `frame_rate` | `60.0` | frames per second (Hz) |
+| `viewer_rate` | `60.0` | frames per wall-clock second (Hz) that the viewer draws, at most. With a `frame_rate` above this value, the viewer draws only some of the frames ; the clock, the sensors and the physics are not changed |
+| `frame_rate` | `60.0` | simulation frames per second (Hz). Each frame steps the physics, publishes `/clock` and the sensors |
 | `substeps` | `2` | physics steps per frame (≥ 1) |
 | `real_time_factor` | `1.0` | simulated seconds per wall-clock second |
 | `cuda_graph` | `true` | capture one frame as a CUDA graph (CUDA only) |
@@ -253,14 +254,14 @@ Noise is Gaussian with the given standard deviation. `sim.seed` sets the noise s
 | `robot` | the only robot | robot name |
 | `timeout` | per type | s; see the types below. `0` keeps the last command |
 
-The first message on a `racecar` or `jointstate` input turns on the [lazy drives](#robots) of its robot. A `markers` input does not.
+The first message on a `racecar` or `jointcommand` input turns on the [lazy drives](#robots) of its robot. A `markers` input does not.
 
 **Types:**
 
 | Type | Message | Description |
 |---|---|---|
 | `racecar` | `geometry_msgs/Twist` | Ackermann steering. `linear.x` is speed (m/s), `angular.z` is yaw rate (rad/s). Default `timeout` 0.5 s; after the timeout, the car stops at `max_decel` and the steering goes to 0 |
-| `jointstate` | `sensor_msgs/JointState` | joint targets by name. `position` and `velocity` set the drive targets; `effort` sets a feed-forward force. Missing or NaN values and unknown names are ignored. Default `timeout` 0; the targets stay after a timeout |
+| `jointcommand` | `newtonian_msgs/JointCommand` | joint targets and gains by name. `position` and `velocity` set the drive targets; `effort` sets a feed-forward force, which is 0 when it is missing or NaN. `kp` and `kd` set the gains `ke` and `kd` of the drive. Missing or NaN targets and gains, and unknown names, are ignored. Default `timeout` 0; the targets and gains stay after a timeout |
 | `markers` | `visualization_msgs/MarkerArray` | draws the `LINE_LIST` and `LINE_STRIP` markers in the viewer, for example the rollouts of a planner. It does not command the robot. Default `timeout` 0.5 s of simulation time; with no new message for this time, the lines are hidden |
 
 **`racecar` keys:**

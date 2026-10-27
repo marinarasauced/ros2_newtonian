@@ -110,6 +110,7 @@ class NewtonianNode(Node):
             self.subscriptions_.append(self.create_subscription(i.msg_type, i.topic, i.callback, _qos(i)))
 
         self.rtf = self.sim.real_time_factor
+        self._render_next = 0.0
         self._rtf_window: tuple[float, float] | None = None
         self._rtf_frame = 0
         self._stale: dict[str, Any] = {}
@@ -152,8 +153,23 @@ class NewtonianNode(Node):
                 msg = s.to_msg(stamp=stamp)
                 self._stale[s.name] = msg
                 self.publishers_[s.name].publish(msg)
-        if not sim.warmingup:
+        if not sim.warmingup and self._render_due(sim=sim):
             sim.render()
+
+    def _render_due(self, sim: NewtonianSimulator) -> bool:
+        """
+        True if the viewer is due for a frame, which is at most 'viewer_rate' per wall-clock second.
+        Every frame is drawn if the frame period is not shorter than the viewer period.
+        """
+        tick = sim.frame_dt / self.rtf
+        period = 1.0 / sim.viewer_rate
+        if period <= tick:
+            return True
+        now = time.monotonic()
+        if now + 0.5 * tick < self._render_next:
+            return False
+        self._render_next = self._render_next + period if now - self._render_next < period else now + period
+        return True
 
     def _check_rtf(self, sim: NewtonianSimulator) -> None:
         """

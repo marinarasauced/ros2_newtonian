@@ -8,7 +8,9 @@ newtonian:
       device: "cuda:0"                  # 'cpu' | 'cuda:0'
       viewer: "gl"                      # 'gl' | 'none'
       substeps: 2
-      frame_rate: 60.0                 # Hz
+      frame_rate: 500.0                 # Hz
+      viewer_rate: 40.0
+      viewer_thread: true
       warmup_steps: 420
       real_time_factor: 1.0
 

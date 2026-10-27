@@ -58,7 +58,7 @@ class NewtonianSimulator:
         # 'sim' parameters subtree
         p.check_keys(allowed=("sim", "solver", "environments", "robots", "inputs", "sensors"))
         s = p.subtree("sim")
-        s.check_keys(allowed=("device", "substeps", "frame_rate", "real_time_factor", "gravity", "viewer", "cuda_graph", "seed", "warmup_steps"))
+        s.check_keys(allowed=("device", "substeps", "frame_rate", "real_time_factor", "gravity", "viewer", "viewer_rate", "cuda_graph", "seed", "warmup_steps"))
 
         # warp device
         self.device = wp.get_device(s.get(key="device", default=None))
@@ -69,6 +69,7 @@ class NewtonianSimulator:
         self.frame_dt = 1.0 / self.frame_rate
         self.sim_dt = self.frame_dt / self.substeps
         self.real_time_factor = s.get_float(key="real_time_factor", default=1.0, above=0.0)
+        self.viewer_rate = s.get_float(key="viewer_rate", default=60.0, above=0.0)
         self.warmupsteps = s.get_int(key="warmup_steps", default=0, at_least=0)
 
         self.gravity = s.get_float(key="gravity", default=-9.81)

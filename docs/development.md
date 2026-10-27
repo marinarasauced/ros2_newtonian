@@ -29,7 +29,7 @@ newtonian/
             environments/    groundplane, track
             robots/          mjcf, urdf, usd
             sensors/         imu, lidar, camera, odometry, jointstate, contact
-            inputs/          racecar, jointstate, markers
+            inputs/          racecar, jointcommand, markers
             solvers/         mujoco, featherstone, kamino, xpbd
 
 config/                      parameter files

@@ -6,8 +6,10 @@ newtonian:
       cuda_graph: true
       device: "cuda:0"                  # 'cpu' | 'cuda:0'
       viewer: "gl"                      # 'gl' | 'none'
-      substeps: 4
-      frame_rate: 60.0                  # Hz
+      substeps: 1
+      frame_rate: 500.0                 # Hz, one /clock message per frame: the MPPI node commands at this rate at most
+      viewer_rate: 40.0
+      viewer_thread: true
       warmup_steps: 420
       real_time_factor: 1.0
 
@@ -43,8 +45,8 @@ newtonian:
 
     sensors:                            # name of sensor (also the default topic); rate in Hz
       imu: {type: "imu", site: "imu", rate: 100.0, topic: "/go2/sensors/imu"}
-      odom: {type: "odometry", child_frame_id: "base_link", rate: 100.0, topic: "/go2/sensors/odometry"}
-      joint_states: {type: "jointstate", joints: ["FR_*", "FL_*", "RR_*", "RL_*"], rate: 100.0, topic: "/go2/sensors/jointstate"}
+      odom: {type: "odometry", child_frame_id: "base_link", rate: 250.0, topic: "/go2/sensors/odometry"}
+      joint_states: {type: "jointstate", joints: ["FR_*", "FL_*", "RR_*", "RL_*"], rate: 250.0, topic: "/go2/sensors/jointstate"}
       feet: {type: "contact_scalar", shapes: ["FR", "FL", "RR", "RL"], rate: 100.0, topic: "/go2/sensors/contacts"}
 
     inputs:
