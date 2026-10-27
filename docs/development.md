@@ -29,7 +29,7 @@ newtonian/
             environments/    groundplane, track
             robots/          mjcf, urdf, usd
             sensors/         imu, lidar, camera, odometry, jointstate, contact
-            inputs/          racecar, jointstate
+            inputs/          racecar, jointcommand, markers
             solvers/         mujoco, featherstone, kamino, xpbd
 
 config/                      parameter files
@@ -71,7 +71,7 @@ For each frame, the node:
 | environment | `Environment` | `on_build` |
 | robot | `Robot` | `load` |
 | sensor | `Sensor`, `SensorFixed` (mounted), `SensorRaytrace` (ray cast) | `update`, `to_msg`; set `msg_type` |
-| input | `Input` | `handle`; set `msg_type` |
+| input | `Input` | `handle`, or `control` for an input that does not command a robot (`markers`); set `msg_type` |
 | solver | `Solver` | set `solver_cls`; change `create` and the capability properties if necessary |
 
 Example sensor:
@@ -94,6 +94,7 @@ class SensorMySensor(Sensor):
 - Find robot parts with `self.robot.find_joints`, `find_bodies`, `find_body`, `find_shapes`. They use the short names and give a `ParameterError` when nothing matches.
 - In a sensor, read body poses from `cache.body_q()`. Call `cache.bvh_refit_shapes()` before a ray cast. The cache makes sure that each frame does this work only once.
 - In an input, write to `sim.buffers` and set `sim.buffers.dirty = True`. Do not write to `sim.control` directly.
+- To draw lines in the viewer, call `sim.viewer.draw_lines(name, starts, ends, colors, device, width)`. `sim.viewer` is `None` without a viewer, so check it first.
 - Put ROS message imports in the plugin module.
 
 ## Check the code

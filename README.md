@@ -61,7 +61,7 @@ newtonian/
             environments/    groundplane, track
             robots/          mjcf, urdf, usd
             sensors/         imu, lidar, camera, odometry, jointstate, contact
-            inputs/          racecar, jointstate
+            inputs/          racecar, jointcommand, markers
             solvers/         mujoco, featherstone, kamino, xpbd
 
 config/                      parameter files
@@ -83,7 +83,7 @@ Install all Python dependencies into a virtual environment.
 ```zsh
 python3 -m venv ~/.virtualenvs/newtonian
 source ~/.virtualenvs/newtonian/bin/activate
-pip install -r ~/ros2_ws/src/newtonian/requirements.txt
+pip install -r ~/ros2_ws/src/newtonian/newtonian/requirements.txt
 ```
 
 Install all ROS dependencies.
@@ -104,7 +104,7 @@ With `--symlink-install`, changes to the existing Python code and to the `config
 
 ## Usage
 
-Start the example scene of a racecar on an oval track.
+Start the example scene of a racecar on a pear-shaped track.
 
 ```zsh
 ros2 launch newtonian sim.launch.py

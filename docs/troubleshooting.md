@@ -26,6 +26,7 @@
 | `solver.type '...' does not report contact forces, which contact sensors need` | contact sensor with `kamino` and `use_collision_detector: true` | remove `use_collision_detector`, or use a different solver |
 | `solver.type '...' does not support lazy drives` | `lazy: true` with `kamino` | remove `lazy`, or use a different solver |
 | `robots has 2 entries but only one robot per sim is supported` | more than one robot | use one robot |
+| `error: can't copy '.../build/newtonian/...': doesn't exist or not a regular file` | with `--symlink-install`, `setup.py` runs from `build/newtonian`, which holds links from the earlier build to files that were since moved or deleted, for example in `descriptions/`, `config/` or `launch/` | `rm -rf build/newtonian install/newtonian`, then build again |
 | The viewer does not open on Wayland | GLFW uses Wayland | `export PYGLFW_LIBRARY_VARIANT=x11` |
 | `Couldn't find function overload for 'contact_force_fn'`, after `RuntimeWarning: MuJoCo dependency version mismatch with Newton's declared requirements` | `mujoco` or `mujoco_warp` is not the version that Newton needs | `pip install -r requirements.txt` |
 

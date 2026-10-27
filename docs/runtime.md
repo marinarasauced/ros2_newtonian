@@ -20,6 +20,13 @@ ros2 launch newtonian sim.launch.py config:=<scene>
 
 A relative path is read as a name. Use an absolute path for files outside the package.
 
+**Launch arguments:**
+
+| Argument | Default | Description |
+|---|---|---|
+| `config` | `racecar` | the scene, see above |
+| `use_sim_time` | `true` | sets `use_sim_time` for the nodes of this launch. The simulator always steps on wall-clock time |
+
 ## Topics
 
 | Topic | Type | Direction |
