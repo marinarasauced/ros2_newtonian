@@ -1,7 +1,11 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
+
+import queue
+import threading
+import traceback
 
 import newton
 import numpy as np
@@ -15,22 +19,69 @@ _PANEL_MARGIN = 10
 _PANEL_ALPHA = 0.7
 _SKY_COLOR = (38.0 / 255.0, 36.0 / 255.0, 38.0 / 255.0)
 
+_STREAM_LOCK = threading.RLock()
+_streams_serialized = False
+
+
+def _serialize_streams() -> None:
+    """
+    Makes the scoped stream blocks of Warp atomic between threads.
+    """
+    global _streams_serialized
+    if _streams_serialized:
+        return
+    enter, leave = wp.ScopedStream.__enter__, wp.ScopedStream.__exit__
+
+    def locked_enter(self):
+        """
+        """
+        _STREAM_LOCK.acquire()
+        try:
+            return enter(self)
+        except BaseException:
+            _STREAM_LOCK.release()
+            raise
+
+    def locked_exit(self, exc_type, exc_value, traceback):
+        try:
+            return leave(self, exc_type, exc_value, traceback)
+        finally:
+            _STREAM_LOCK.release()
+
+    wp.ScopedStream.__enter__, wp.ScopedStream.__exit__ = locked_enter, locked_exit
+    _streams_serialized = True
+
+
+class _ViewerHost(Protocol):
+    """
+    """
+
+    @property
+    def model(self) -> newton.Model: ...
+
+    def pause(self, is_paused: bool) -> None: ...
+
+
+# either viewer
+type Viewer = NewtonianViewer | NewtonianViewerThread
+
 
 class NewtonianViewer:
     """
     Newton GL viewer with a control panel, kept across rebuilds.
     """
 
-    def __init__(self, sim: NewtonianSimulator) -> None:
+    def __init__(self, sim: _ViewerHost) -> None:
         """
         Opens the viewer window for 'sim'.
         """
         self.gl = newton.viewer.ViewerGL()
+        self._reset_requested = False
         self._render_setup()
         self._ui_setup()
         self.attach(sim=sim)
 
-    def attach(self, sim: NewtonianSimulator) -> NewtonianViewer:
+    def attach(self, sim: _ViewerHost) -> NewtonianViewer:
         """
         Shows the model of 'sim', and returns the viewer.
         """
@@ -105,6 +156,13 @@ class NewtonianViewer:
         Applies forces in the simulator's Newton GL viewer.
         """
         self.gl.apply_forces(state=state)
+
+    def take_reset_request(self) -> bool:
+        """
+        True once if the reset buttons was pressed since the last call.
+        """
+        requested, self._reset_requested = self._reset_requested, False
+        return requested
 
     def _render_setup(self) -> None:
         """
@@ -182,6 +240,180 @@ class NewtonianViewer:
 
             # reset
             if imgui.button("Reset", size):
-                self.sim.reset()
+                self._reset_requested = True
 
         imgui.end()
+
+
+class _NewtonianViewerSimulator:
+    """
+    """
+
+    def __init__(self, owner: NewtonianViewerThread) -> None:
+        """
+        """
+        self._owner = owner
+
+    @property
+    def model(self) -> newton.Model:
+        """
+        """
+        return self._owner.sim.model
+
+    def pause(self, is_paused: bool) -> None:
+        """
+        """
+        self._owner.sim.pause(is_paused=is_paused)
+
+
+class NewtonianViewerThread:
+    """
+    """
+
+    def __init__(self, sim: NewtonianSimulator) -> None:
+        """
+        """
+        _serialize_streams()
+        self.sim = sim
+        self._real: NewtonianViewer
+        self._error: BaseException | None = None
+        self._stop = False
+        self._snapshot: newton.State | None = None
+        self._job: tuple[float, newton.State, newton.Contacts | None] | None = None
+        self._busy = False
+        self._wake = threading.Event()
+        self._ready = threading.Event()
+        self._calls: queue.SimpleQueue = queue.SimpleQueue()
+        self._thread = threading.Thread(target=self._run, name="newtonian-viewer", daemon=True)
+        self._thread.start()
+        self._ready.wait()
+        if self._error is not None:
+            raise RuntimeError("the viewer thread could not open the window") from self._error
+
+    def attach(self, sim: NewtonianSimulator) -> NewtonianViewerThread:
+        """
+        """
+        def attach() -> None:
+            self._job, self._busy, self._snapshot = None, False, None
+            self._real.attach(sim=_NewtonianViewerSimulator(self))
+        
+        self.sim = sim
+        self._call(fn=attach)
+        return self
+
+    @property
+    def is_paused(self) -> bool:
+        """
+        True if stepping is paused.
+        False otherwise.
+        """
+        return self._real.is_paused
+
+    @is_paused.setter
+    def is_paused(self, is_paused: bool) -> None:
+        """
+        Pauses or unpauses stepping.
+        """
+        self._real.is_paused = is_paused
+
+    def is_running(self) -> bool:
+        """
+        True if the window is open and the thread is running.
+        False otherwise.
+        """
+        return self._error is None and self._thread.is_alive() and self._real.is_running()
+
+    def stepable(self) -> bool:
+        """
+        Returns whether the simulator should step.
+        """
+        return self._real.stepable()
+
+    def take_reset_request(self) -> bool:
+        """
+        True once if the reset button was pressed since the last call.
+        """
+        return self._real.take_reset_request()
+
+    def render(self, time: float, state: newton.State, contacts: newton.Contacts | None) -> None:
+        """
+        Hands a copy of 'state' to the viewer thread, unless it is still drawing the last frame.
+        """
+        if self._busy or not self.is_running():
+            return
+        if self._snapshot is None:
+            self._snapshot = self.sim.model.state()
+        self._snapshot.assign(state)
+        self._job = (time, self._snapshot, contacts)
+        self._busy = True
+        self._wake.set()
+
+    def draw_lines(self, name: str, starts: np.ndarray | None, ends: np.ndarray | None, colors: np.ndarray | None, device: wp.Device, width: float = 1.5) -> None:
+        """
+        Drarws line segments in the viewer thread, or hides the batch when they are 'None'.
+        """
+        self._call(fn=lambda: self._real.draw_lines(name=name, starts=starts, ends=ends, colors=colors, device=device, width=width), wait=False)
+
+    def apply(self, state: newton.State) -> None:
+        """
+        Applies forces of the viewer in the calling thread.
+        """
+        self._real.apply(state=state)
+
+    def close(self) -> None:
+        """
+        Stops the thread, thereby closing the window.
+        """
+        self._stop = True
+        self._wake.set()
+        self._thread.join(timeout=10.0)
+
+    def _call(self, fn, wait: bool = True) -> None:
+        """
+        Runs 'fn' in the viewer thread and waits for it unless 'wait' is false.
+        """
+        done = threading.Event()
+        self._calls.put((fn, done))
+        self._wake.set()
+        if wait:
+            while not done.wait(timeout=0.1):
+                if not self._thread.is_alive():
+                    break
+
+    def _run(self) -> None:
+        """
+        Opens the viewer and serves the calls and frames until stopped.
+        """
+        try:
+            self._real = NewtonianViewer(sim=_NewtonianViewerSimulator(self))
+        except BaseException as e:
+            self._error = e
+            self._ready.set()
+            return
+        self._ready.set()
+        try:
+            while not self._stop:
+                self._wake.wait()
+                self._wake.clear()
+                while True:
+                    try:
+                        fn, done = self._calls.get_nowait()
+                    except queue.Empty:
+                        break
+                    try:
+                        fn()
+                    finally:
+                        done.set()
+                job, self._job = self._job, None
+                if job is not None:
+                    self._real.render(time=job[0], state=job[1], contacts=job[2])
+                    self._busy = False
+        except BaseException as e:
+            self._error = e
+            traceback.print_exc()
+        finally:
+            self._busy = False
+            try:
+                self._real.close()
+            except BaseException:
+                pass

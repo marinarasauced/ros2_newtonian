@@ -136,6 +136,9 @@ class NewtonianNode(Node):
             self.get_logger().info("viewer closed, shutting down ...")
             rclpy.try_shutdown()
             return
+        if sim.viewer is not None and sim.viewer.take_reset_request():
+            self._rtf_window = None
+            sim.reset()
         if sim.warmingup:
             self._rtf_window = None
             self._publish_stale(sim=sim)

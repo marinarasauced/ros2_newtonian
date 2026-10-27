@@ -12,7 +12,7 @@ from newtonian.modules.plugins.inputs.base import INPUTS, Input
 
 if TYPE_CHECKING:
     from newtonian.modules.physics.simulator import NewtonianSimulator
-    from newtonian.modules.physics.viewer import NewtonianViewer
+    from newtonian.modules.physics.viewer import Viewer
 
 
 @INPUTS.register("markers")
@@ -33,7 +33,7 @@ class InputMarkers(Input):
         self._names: set[str] = set()
         self._time_drawn: float | None = None
 
-    def _draw(self, sim: NewtonianSimulator, viewer: NewtonianViewer, msg: MarkerArray) -> None:
+    def _draw(self, sim: NewtonianSimulator, viewer: Viewer, msg: MarkerArray) -> None:
         """
         Draws the 'LINE_LIST' and 'LINE_STRIP' markers of 'msg', one batch of lines per namespace and id.
         """

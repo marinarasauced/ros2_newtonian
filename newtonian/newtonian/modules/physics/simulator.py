@@ -10,7 +10,7 @@ import warp as wp
 from newtonian.modules.arrays import require, to_numpy
 from newtonian.modules.params import ParameterError, Parameters
 
-from newtonian.modules.physics.viewer import NewtonianViewer
+from newtonian.modules.physics.viewer import NewtonianViewer, NewtonianViewerThread, Viewer
 
 from newtonian.modules.plugins.base import Plugin
 from newtonian.modules.plugins.environments import ENVIRONMENTS, Environment
@@ -49,7 +49,7 @@ class NewtonianSimulator:
     Newton scene built from the parameters, with its solver, states, plugins, and viewer.
     """
 
-    def __init__(self, p: Parameters, viewer: NewtonianViewer | None = None) -> None:
+    def __init__(self, p: Parameters, viewer: Viewer | None = None) -> None:
         """
         Reads the 'sim' keys and builds the scene.
         """
@@ -58,7 +58,7 @@ class NewtonianSimulator:
         # 'sim' parameters subtree
         p.check_keys(allowed=("sim", "solver", "environments", "robots", "inputs", "sensors"))
         s = p.subtree("sim")
-        s.check_keys(allowed=("device", "substeps", "frame_rate", "real_time_factor", "gravity", "viewer", "viewer_rate", "cuda_graph", "seed", "warmup_steps"))
+        s.check_keys(allowed=("device", "substeps", "frame_rate", "real_time_factor", "gravity", "viewer", "viewer_rate", "viewer_thread", "cuda_graph", "seed", "warmup_steps"))
 
         # warp device
         self.device = wp.get_device(s.get(key="device", default=None))
@@ -70,6 +70,7 @@ class NewtonianSimulator:
         self.sim_dt = self.frame_dt / self.substeps
         self.real_time_factor = s.get_float(key="real_time_factor", default=1.0, above=0.0)
         self.viewer_rate = s.get_float(key="viewer_rate", default=60.0, above=0.0)
+        self.viewer_thread = s.get_bool(key="viewer_thread", default=False)
         self.warmupsteps = s.get_int(key="warmup_steps", default=0, at_least=0)
 
         self.gravity = s.get_float(key="gravity", default=-9.81)
@@ -82,7 +83,7 @@ class NewtonianSimulator:
         # build state
         self.frame = 0
         self.graph: wp.Graph | None = None
-        self.viewer: NewtonianViewer | None = None
+        self.viewer: Viewer | None = None
         self.contacts: newton.Contacts | None = None
         self.collision_pipeline: newton.CollisionPipeline | None = None
 
@@ -97,7 +98,7 @@ class NewtonianSimulator:
         with wp.ScopedDevice(device=self.device):
             self._build(viewer=viewer)
 
-    def _build(self, viewer: NewtonianViewer | None) -> None:
+    def _build(self, viewer: Viewer | None) -> None:
         """
         Builds the model, solver, states, contacts, viewer, and CUDA graph.
         """
@@ -163,7 +164,7 @@ class NewtonianSimulator:
 
         # build custom viewer
         if self.viewer_type == "gl":
-            self.viewer = viewer.attach(sim=self) if viewer is not None else NewtonianViewer(sim=self)
+            self.viewer = viewer.attach(sim=self) if viewer is not None else (NewtonianViewerThread if self.viewer_thread else NewtonianViewer)(sim=self)
 
         # build CUDA graph
         self._capture()
