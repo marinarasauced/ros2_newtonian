@@ -69,6 +69,7 @@ sensors.imu.qos expected one of ['default', 'sensor_data'] but got 'fast'
 |---|---|---|
 | `device` | Warp default | `cpu` or `cuda:0` |
 | `viewer` | `none` | `gl` (OpenGL window) or `none` |
+| `viewer_thread` | `false` | draw in a thread of its own, so that drawing does not take time from stepping. The window, the OpenGL context and the events then belong to that thread. The simulator hands over a copy of the state for each frame, and skips a frame while the viewer is still drawing the last one. The Reset button of the panel is carried out by the simulator thread. Needs a restart to change (a rebuild keeps the viewer). At the start it wraps the `ScopedStream` blocks of Warp in one lock, because Warp keeps the current stream of a device as one value for all threads |
 | `viewer_rate` | `60.0` | frames per wall-clock second (Hz) that the viewer draws, at most. With a `frame_rate` above this value, the viewer draws only some of the frames ; the clock, the sensors and the physics are not changed |
 | `frame_rate` | `60.0` | simulation frames per second (Hz). Each frame steps the physics, publishes `/clock` and the sensors |
 | `substeps` | `2` | physics steps per frame (≥ 1) |
