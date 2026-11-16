@@ -30,7 +30,7 @@ All AI contributions were reviewed, tested, and applied by the author.
 |---|---|
 | ROS 2 | Lyrical |
 | Python | 3.14 |
-| Newton | 1.7.0 |
+| Newton | 1.8.0 |
 | Warp | 1.18.0 |
 | GPU (optional) | NVIDIA, CUDA 13 |
 

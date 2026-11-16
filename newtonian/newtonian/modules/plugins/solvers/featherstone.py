@@ -29,6 +29,7 @@ def _estimate_contact_forces(
     contact_count: wp.array[int],
     contact_point0: wp.array[wp.vec3],
     contact_point1: wp.array[wp.vec3],
+    contact_surface_velocity: wp.array[wp.vec3],
     contact_normal: wp.array[wp.vec3],
     contact_shape0: wp.array[int],
     contact_shape1: wp.array[int],
@@ -37,12 +38,12 @@ def _estimate_contact_forces(
     rigid_contact_stiffness: wp.array[float],
     rigid_contact_damping: wp.array[float],
     rigid_contact_friction_scale: wp.array[float],
-    friction_smoothing: float,
     # outputs
     force: wp.array[wp.spatial_vector],
 ):
     """
     Writes the force of each rigid contact into 'force', from a penalty contact model.
+    Mirrors the Newton 1.8 Featherstone contact model: viscous friction 'kf * vt' up to the Coulomb limit 'mu * (fn + fd)'.
     """
     tid = wp.tid()
     force[tid] = wp.spatial_vector()
@@ -129,6 +130,9 @@ def _estimate_contact_forces(
         bv_b = wp.spatial_top(qd_b) + wp.cross(wp.spatial_bottom(qd_b), r_b)
 
     v = bv_a - bv_b
+    if contact_surface_velocity:
+        surface_velocity = contact_surface_velocity[tid]
+        v -= surface_velocity - n * wp.dot(n, surface_velocity)
 
     vn = wp.dot(n, v)
     vt = v - n * vn
@@ -139,10 +143,13 @@ def _estimate_contact_forces(
 
     ft = wp.vec3(0.0)
     if d < 0.0:
-        vs = wp.norm_huber(vt, delta=friction_smoothing)
-        if vs > 0.0:
-            fr = vt / vs
-            ft = fr * wp.min(kf * vs, -mu * (fn + fd))
+        friction_limit = -mu * (fn + fd)
+        if friction_limit > 0.0 and kf > 0.0:
+            ft = kf * vt
+            speed_sq = wp.dot(vt, vt)
+            slip_limit = friction_limit / kf
+            if speed_sq > slip_limit * slip_limit:
+                ft = vt * (friction_limit / wp.sqrt(speed_sq))
 
     f_a = -(n * (fn + fd) + ft)
     force[tid] = wp.spatial_vector(f_a, wp.cross(r_a, f_a))
@@ -185,6 +192,7 @@ class SolverFeatherstone(Solver):
                 contacts.rigid_contact_count,
                 contacts.rigid_contact_point0,
                 contacts.rigid_contact_point1,
+                contacts.rigid_contact_surface_velocity,
                 contacts.rigid_contact_normal,
                 contacts.rigid_contact_shape0,
                 contacts.rigid_contact_shape1,
@@ -193,7 +201,6 @@ class SolverFeatherstone(Solver):
                 contacts.rigid_contact_stiffness,
                 contacts.rigid_contact_damping,
                 contacts.rigid_contact_friction,
-                solver.friction_smoothing,
             ],
             outputs=[
                 contacts.force,
