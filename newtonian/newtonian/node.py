@@ -3,8 +3,12 @@ from __future__ import annotations
 
 from typing import Any
 
+import collections
+import json
 import signal
 import time
+
+import numpy as np
 
 import rclpy
 import rclpy.executors
@@ -17,11 +21,13 @@ from rclpy.timer import Timer
 from rclpy.qos import QoSProfile, qos_profile_sensor_data
 
 from builtin_interfaces.msg import Time
+from newtonian_srvs.srv import Configure
 from rosgraph_msgs.msg import Clock
 from std_srvs.srv import SetBool, Trigger
 
 from newtonian.modules.params import Parameters
 from newtonian.modules.physics.simulator import NewtonianSimulator
+from newtonian.modules.plugins.sensors import Sensor
 
 
 _ROS_PARAMETERS = ("use_sim_time", "start_type_description_service")
@@ -59,7 +65,27 @@ class NewtonianNode(Node):
         self.create_service(srv_type=Trigger, srv_name="~/reset", callback=self._on_reset)
         self.create_service(srv_type=Trigger, srv_name="~/rebuild", callback=self._on_rebuild)
         self.create_service(srv_type=SetBool, srv_name="~/pause", callback=self._on_pause)
+        self.create_service(srv_type=Configure, srv_name="~/configure", callback=self._on_configure)
         self._rebuild()
+
+    def _check_rtf(self, sim: NewtonianSimulator) -> None:
+        """
+        Logs a warning if the real-time factor differs from the target.
+        """
+        now = time.monotonic()
+        if sim.frame != self._rtf_frame:
+            self._rtf_window = None
+        self._rtf_frame = sim.frame + 1
+        if self._rtf_window is None:
+            self._rtf_window = (now, sim.sim_time)
+            return
+        wall_start, sim_start = self._rtf_window
+        if now - wall_start < _RTF_WINDOW:
+            return
+        rtf = (sim.sim_time - sim_start) / (now - wall_start)
+        if abs(rtf - self.rtf) > _RTF_TOLERANCE * self.rtf:
+            self.get_logger().warning(f"real-time factor {rtf:.2f} differs from the target {self.rtf:.2f}")
+        self._rtf_window = (now, sim.sim_time)
 
     def _params(self) -> Parameters:
         """
@@ -113,6 +139,9 @@ class NewtonianNode(Node):
         self._render_next = 0.0
         self._rtf_window: tuple[float, float] | None = None
         self._rtf_frame = 0
+        self._delay: dict[str, list[tuple[float, Any]]] = {}
+        self._timing: collections.deque = collections.deque(maxlen=2000)
+        self._step_ms: collections.deque = collections.deque(maxlen=2000)
         self._stale: dict[str, Any] = {}
         self._stale_clock: Time | None = None
         self._stale_due: dict[str, float] | None = None
@@ -148,14 +177,23 @@ class NewtonianNode(Node):
         else:
             self._stale_due = None
             self._check_rtf(sim=sim)
+
+            tic = time.monotonic()
             sim.step()
+
             stamp = self._stamp(sim=sim)
             self._stale_clock = stamp
             self.clock_pub.publish(Clock(clock=stamp))
             for s in sim.sense():
                 msg = s.to_msg(stamp=stamp)
                 self._stale[s.name] = msg
-                self.publishers_[s.name].publish(msg)
+                self._publish(sim=sim, sensor=s, msg=msg)
+            self._publish_due(sim=sim)
+
+            toc = time.monotonic()
+            self._step_ms.append(1000.0 * (toc - tic))
+            self._timing.append((toc, sim.sim_time))
+
         if not sim.warmingup and self._render_due(sim=sim):
             sim.render()
 
@@ -174,24 +212,37 @@ class NewtonianNode(Node):
         self._render_next = self._render_next + period if now - self._render_next < period else now + period
         return True
 
-    def _check_rtf(self, sim: NewtonianSimulator) -> None:
+    def _on_configure(self, request: Configure.Request, response: Configure.Response) -> Configure.Response:
         """
-        Logs a warning if the real-time factor differs from the target.
         """
-        now = time.monotonic()
-        if sim.frame != self._rtf_frame:
-            self._rtf_window = None
-        self._rtf_frame = sim.frame + 1
-        if self._rtf_window is None:
-            self._rtf_window = (now, sim.sim_time)
-            return
-        wall_start, sim_start = self._rtf_window
-        if now - wall_start < _RTF_WINDOW:
-            return
-        rtf = (sim.sim_time - sim_start) / (now - wall_start)
-        if abs(rtf - self.rtf) > _RTF_TOLERANCE * self.rtf:
-            self.get_logger().warning(f"real-time factor {rtf:.2f} differs from the target {self.rtf:.2f}")
-        self._rtf_window = (now, sim.sim_time)
+        if self.sim is None:
+            response.success = False
+            response.message = "no scene"
+            return response
+
+        try:
+            loaded = json.loads(request.request) if request.request.strip() else {}
+            out = self.sim.benchmarker.configure(request=loaded)
+
+            if loaded.get("reset"):
+                self._rtf_window = None
+                self._delay.clear()
+                self._timing.clear()
+                self._step_ms.clear()
+
+            if "rtf" in loaded:
+                self._set_rtf(float(loaded["rtf"]))
+            if loaded.get("timing"):
+                out["timing"] = self._report_timing()
+
+            response.success = True
+            response.response = json.dumps(out)
+
+        except Exception as e:
+            response.success = False
+            response.message = f"{type(e).__name__} : {e}"
+
+        return response
 
     def _on_reset(self, request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
         """
@@ -229,6 +280,38 @@ class NewtonianNode(Node):
         response.success = self.sim is not None
         return response
 
+    def _publish(self, sim: NewtonianSimulator, sensor: Sensor, msg: Any) -> None:
+        """
+        """
+        is_ideal = sensor.latency == 0.0 and sensor.jitter == 0.0 and sensor.default_qos == 0.0
+
+        if is_ideal and not self._delay.get(sensor.name):
+            self.publishers_[sensor.name].publish(msg)
+            return
+
+        if sensor.drop > 0.0 and sim.rng.random() < sensor.drop:
+            return
+
+        delay = sensor.latency
+        if sensor.jitter > 0.0:
+            delay += float(sim.rng.uniform(-sensor.jitter, sensor.jitter))
+
+        self._delay.setdefault(sensor.name, []).append((sim.sim_time + max(delay, 0.0), msg))
+
+    def _publish_due(self, sim: NewtonianSimulator) -> None:
+        """
+        Publishes any delayed messages that are due.
+        """
+        tic = sim.sim_time + 1.0e-9
+
+        for name, items, in self._delay.items():
+            if not items:
+                continue
+
+            items.sort(key=lambda item: item[0])
+            while items and items[0][0] <= tic:
+                self.publishers_[name].publish(items.pop(0)[1])
+
     def _publish_stale(self, sim: NewtonianSimulator) -> None:
         """
         Publishes the last clock and the last message of each sensor again
@@ -249,6 +332,43 @@ class NewtonianNode(Node):
             msg.header.stamp = self._stale_clock
             self.publishers_[s.name].publish(msg)
             self._stale_due[s.name] = max(self._stale_due[s.name] + periods[s.name], now + 0.5 * periods[s.name])
+
+    def _report_timing(self) -> dict[str, Any]:
+        """
+        """
+        out: dict[str, Any] = {"frames": len(self._timing), "rtf_target": self.rtf}
+
+        if len(self._timing) > 1:
+            (w0, s0), (w1, s1) = self._timing[0], self._timing[-1]
+            out["rtf"] = (s1 - s0) / max(w1 - w0, 1.0e-9)
+
+        if self._step_ms:
+            steps = np.asarray(self._step_ms)
+            budget = 1000.0 * self.sim.frame_dt / self.rtf if self.sim else 0.0
+            out["step_ms_p50"] = float(np.percentile(steps, 50))
+            out["step_ms_p99"] = float(np.percentile(steps, 99))
+            out["step_ms_max"] = float(steps.max())
+            out["budget_ms"] = budget
+            out["overruns"] = int((steps > budget).sum())
+
+        self._timing.clear()
+        self._step_ms.clear()
+
+        return out
+
+    def _set_rtf(self, rtf: float) -> None:
+        """
+        Sets the real time factor and timer period.
+        """
+        if self.sim is None or rtf <= 0.0 or abs(rtf - self.rtf) < 1.0e-9:
+            return
+
+        self.rtf = rtf
+        self._rtf_window = None
+
+        if self.timer is not None:
+            self.destroy_timer(self.timer)
+        self.timer = self.create_timer(timer_period_sec=self.sim.frame_dt / self.rtf, callback=self._on_timer, clock=RosClock(clock_type=ClockType.STEADY_TIME))
 
     def destroy_node(self) -> None:
         """
