@@ -83,10 +83,10 @@ class Context:
     tilt: np.ndarray
     v_h: np.ndarray            # velocity in the heading frame (x, y)
     wz: np.ndarray             # yaw rate, world
-    cmd: np.ndarray            # command at each sample: vx, vy, wz, height
+    cmd: np.ndarray            # command at each sample : vx, vy, wz, height
     fell: bool
     t_fall: float
-    t_end: float               # end of the run: the fall, or the last sample
+    t_end: float               # end of the run : the fall, or the last sample
     active: np.ndarray         # samples after the settle time, up to t_end
     steady: np.ndarray         # active samples after the transient
 

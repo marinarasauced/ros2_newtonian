@@ -37,7 +37,7 @@ class Session:
         self.tag = tag
         self.ctl_proc: Process | None = None
 
-        # simulator: its process, and the sensors that may get latency (not the ground truth)
+        # simulator : its process, and the sensors that may get latency (not the ground truth)
         cmd = ["ros2", "run", "newtonian", "sim", "--ros-args", "--params-file", str(scene_cfg)]
         self.sim = Process(cmd, out / "logs" / f"{tag}_sim.log", env)
         params = yaml.safe_load(scene_cfg.read_text())["newtonian"]["ros__parameters"]
@@ -53,7 +53,7 @@ class Session:
         # controller
         self._start_controller()
 
-        # real-time factor: the one of the file, or the highest one at which both sides keep up
+        # real-time factor : the one of the file, or the highest one at which both sides keep up
         if suite.get("rtf", 1.0) == "auto":
             self.rtf_used = self._calibrate(candidates=suite.get("rtf_candidates", [1.0, 1.25, 1.5, 2.0, 3.0, 4.0]))
             print(f"[{tag}] real-time factor {self.rtf_used}; probes {json.dumps(self.calibration)}", flush=True)
@@ -76,14 +76,14 @@ class Session:
         if self.ctl.get("reset", "none") == "restart":
             self._start_controller()
 
-        # scene: reset, physics, pushes, latency, seed; the timing starts again
+        # scene : reset, physics, pushes, latency, seed ; the timing starts again
         req = to_request(params=params, sensors=self.sensors)
         req["seed"] = int(t["seed"])
         req["timing"] = True
         req.setdefault("rtf", rtf)
         node.configure(req)
 
-        # the simulator warms up; the timing of the warm-up is discarded
+        # the simulator warms up ; the timing of the warm-up is discarded
         self._wait_warmup()
         node.configure({"timing": True})
 
@@ -93,7 +93,7 @@ class Session:
         profile.setdefault("height", self.height)
         node.start(profile=profile, duration=duration)
 
-        # the node ends the trial at the duration, or after a fall; the wall time is limited
+        # the node ends the trial at the duration, or after a fall ; the wall time is limited
         wall0 = time.monotonic()
         limit = duration / rtf * 3.0 + 30.0
         status = "ok"
@@ -206,12 +206,12 @@ class Session:
                 time.sleep(0.02)
             node.stop()
 
-            # simulator: speed and late frames
+            # simulator : speed and late frames
             timing = node.configure({"timing": True}).get("timing", {})
             frames = max(float(timing.get("frames", 0)), 1.0)
             overrun_frac = timing.get("overruns", 0) / frames
 
-            # controller: share of missed cycles, and rate against the expected one
+            # controller : share of missed cycles, and rate against the expected one
             cmd_rx = np.array(node.cmd_rx, dtype=float).reshape(-1, 2)
             gaps = np.diff(cmd_rx[:, 0]) if len(cmd_rx) > 10 else np.array([1.0])
             expected = period or float(np.median(gaps))

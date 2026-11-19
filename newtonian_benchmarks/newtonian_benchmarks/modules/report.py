@@ -123,7 +123,7 @@ def _section(df: pd.DataFrame, parts: list[str]) -> None:
     for a in varied:
         parts.append(f"<h3>Pass rate by {a[5:]}</h3><img src='{_bars(df=df, axis=a)}'>")
 
-    # heatmaps of pairs of axes; the other axes are averaged
+    # heatmaps of pairs of axes ; the other axes are averaged
     pairs = [(a, b) for i, a in enumerate(varied) for b in varied[i + 1:]]
     for a, b in pairs[:6]:
         others = [c[5:] for c in varied if c not in (a, b)]

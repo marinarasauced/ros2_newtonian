@@ -67,7 +67,7 @@ class NewtonianBenchmarker:
         """
         self.sim = sim
 
-        # pushes: the schedule on the host, the active wrenches on the device
+        # pushes : the schedule on the host, the active wrenches on the device
         self.pushes: list[dict[str, Any]] = []
         self._body = wp.array(np.full(_SLOTS, -1, dtype=np.int32), dtype=wp.int32, device=sim.device)
         self._wrench = wp.zeros(_SLOTS, dtype=wp.spatial_vector, device=sim.device)
@@ -152,7 +152,7 @@ class NewtonianBenchmarker:
         if "payload_mass" in request:
             self.set_payload(mass=float(request["payload_mass"]))
 
-        # start state: after the warm-up, if the scene is still warming up
+        # start state : after the warm-up, if the scene is still warming up
         if "state" in request:
             if sim.warmingup:
                 self._pending_state = request["state"]
@@ -267,7 +267,7 @@ class NewtonianBenchmarker:
         q = to_numpy(arr=model.joint_q).copy()
         qd = to_numpy(arr=model.joint_qd).copy()
 
-        # pose of the floating base: position, then orientation
+        # pose of the floating base : position, then orientation
         if "xyz" in s:
             q[0:3] += np.asarray(s["xyz"], dtype=np.float32)
         if "rpy" in s:

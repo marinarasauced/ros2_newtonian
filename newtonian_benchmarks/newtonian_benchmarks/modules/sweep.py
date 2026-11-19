@@ -112,7 +112,7 @@ def _points(axes: dict[str, list[Any]], suite: dict[str, Any]) -> list[tuple]:
     if sampling != "random":
         raise ValueError(f"unknown sampling {sampling!r}")
 
-    # points of the full product, without repeats; all of them if 'samples' is not smaller than the product
+    # points of the full product, without repeats ; all of them if 'samples' is not smaller than the product
     rng = random.Random(int(suite.get("sampling_seed", 0)))
     sizes = [len(axes[n]) for n in names]
     total = int(np.prod(sizes)) if sizes else 1
@@ -151,7 +151,7 @@ def find_suites(run: dict[str, Any]) -> list[dict[str, Any]]:
                 continue
             suite[k] = {**base.get(k, {}), **v} if k in MERGE_KEYS and isinstance(v, dict) else v
 
-        # axes: the crossed ones of the library, then the own ones
+        # axes : the crossed ones of the library, then the own ones
         axes: dict[str, Any] = {}
         for item in over.get("cross", []):
             if isinstance(item, str):
@@ -204,7 +204,7 @@ def write_scene(base: dict[str, Any], key: str, out: Path) -> Path:
     cfg = json.loads(json.dumps(base))
     rp = cfg["newtonian"]["ros__parameters"]
 
-    # terrain: one more environment, with the friction of the ground
+    # terrain : one more environment, with the friction of the ground
     terrain = spec["terrain"]
     if terrain not in ("flat", None):
         mu = rp["environments"].get("ground", {}).get("mu", 1.0)

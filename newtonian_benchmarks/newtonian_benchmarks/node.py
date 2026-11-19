@@ -174,7 +174,7 @@ class BenchmarkNode(Node):
         v, w = msg.twist.twist.linear, msg.twist.twist.angular
         self.odom.append((t, p.x, p.y, p.z, q.x, q.y, q.z, q.w, v.x, v.y, v.z, w.x, w.y, w.z))
 
-        # fall: the base tilts too far or sinks too low
+        # fall : the base tilts too far or sinks too low
         if self.fall_time is None:
             tilt = float(np.arccos(np.clip(1.0 - 2.0 * (q.x * q.x + q.y * q.y), -1.0, 1.0)))
             if tilt > self.fall_tilt or p.z < self.fall_height:

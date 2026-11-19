@@ -34,7 +34,7 @@ def to_request(params: dict[str, Any], sensors: list[str]) -> dict[str, Any]:
     if "start" in params:
         req["state"] = params["start"]
 
-    # pushes: a direction '+x' or 'rz' with its force or torque, from the end of the settle time
+    # pushes : a direction '+x' or 'rz' with its force or torque, from the end of the settle time
     pushes = find_pushes(params=params)
     if pushes:
         req["push"] = []
@@ -51,7 +51,7 @@ def to_request(params: dict[str, Any], sensors: list[str]) -> dict[str, Any]:
             vec["xyz".index(axis)] = sign * float(p["force"])
             req["push"].append({key: vec, "start": settle + float(p.get("at", 3.0)), "duration": float(p.get("duration", 0.2)), "body": p.get("body")})
 
-    # latency of the commands and of the sensors; jitter and drop apply to both
+    # latency of the commands and of the sensors ; jitter and drop apply to both
     lat = {k: float(params[k]) for k in ("jitter", "drop") if k in params}
     if "cmd_latency" in params or lat:
         req["inputs"] = {"*": {"latency": float(params.get("cmd_latency", 0.0)), **lat}}

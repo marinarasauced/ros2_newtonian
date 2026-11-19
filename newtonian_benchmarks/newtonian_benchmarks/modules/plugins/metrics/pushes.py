@@ -40,7 +40,7 @@ class MetricPushes(Metric):
         out["peak_tilt_push"] = float(np.max(peak_tilt)) if peak_tilt else float("nan")
         out["peak_vel_dev_push"] = float(np.max(peak_dv)) if peak_dv else float("nan")
 
-        # recovered: no fall, and every push has a recovery time
+        # recovered : no fall, and every push has a recovery time
         all_found = bool(rec_times) and all(np.isfinite(x) for x in rec_times)
         out["recovered"] = (all_found and not ctx.fell) if ctx.pushes else True
         out["recovery_time"] = float(np.max(rec_times)) if all_found else float("nan")

@@ -6,7 +6,7 @@ import numpy as np
 from .base import DEFAULTS, METRICS, Context, Metric
 from . import attitude, controller, power, pushes, realtime, survival, tracking
 
-# order of the metrics: a metric may read the values of the ones before it
+# order of the metrics : a metric may read the values of the ones before it
 ORDER = ("survival", "tracking", "attitude", "pushes", "power", "controller", "realtime")
 
 
@@ -47,7 +47,7 @@ def is_passed(m: dict[str, Any], rule: dict[str, float]) -> bool:
     if not m.get("valid", False) or m.get("fell", True):
         return False
 
-    # limits: every 'max_<metric>' key
+    # limits : every 'max_<metric>' key
     for key, limit in rule.items():
         if key.startswith("max_"):
             value = m.get(key[4:])

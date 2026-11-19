@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 
-# root of the package: the folder that holds 'config/'
+# root of the package : the folder that holds 'config/'
 ROOT = Path(__file__).resolve().parents[2]
 
 

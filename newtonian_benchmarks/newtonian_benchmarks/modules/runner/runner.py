@@ -213,7 +213,7 @@ class BenchmarkRunner:
                         except Exception as e:
                             m = {"status": "error", "pass": False, "valid": False, "error": f"{type(e).__name__}: {e}"}
 
-                            # a failed trial may leave the processes in a bad state: start them again
+                            # a failed trial may leave the processes in a bad state : start them again
                             try:
                                 session.close()
                                 session = Session(suite=suite, ctl=ctl, scene_cfg=cfg, out=out, env=env, node=node, tag=f"g{gi}r")

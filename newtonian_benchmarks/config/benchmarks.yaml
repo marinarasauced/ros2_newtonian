@@ -1,30 +1,30 @@
-# The whole benchmark in one file: robot (with its simulator scene), controller, factors to vary, and suites.
-# Run it with: ros2 run newtonian_benchmarks bench --config benchmarks --out results/run
+# The whole benchmark in one file : robot (with its simulator scene), controller, factors to vary, and suites.
+# Run it with : ros2 run newtonian_benchmarks bench --config benchmarks --out results/run
 #
-# The sweep part (trial, axes, suites) does not depend on the robot:
+# The sweep part (trial, axes, suites) does not depend on the robot :
 #   - velocities are fractions of the limits of the controller (controller.limits),
 #   - pushes are multiples of the body weight (force_bw), payloads are fractions of the robot mass (payload_frac),
 #   - terrain sizes ending in _rel are multiples of the nominal height of the robot (robot.height).
 # 'axes' is a library of factors. Each suite crosses the axes it lists (full product, or 'sampling: random').
 # Suites may cross the same axes with other partners. Keys at the top level are the defaults of all suites.
 name: benchmarks
-rtf: 1.0                                # real-time factor; 'auto' finds the highest factor at which the simulator and the controller keep up
+rtf: 1.0                                # real-time factor ; 'auto' finds the highest factor at which the simulator and the controller keep up
 
 robot:                                  # everything that depends on the robot
   name: go2
   topics: {ground_truth: /go2/gt/odometry, joint_state: /go2/sensors/jointstate, joint_command: /go2/control}   # ground truth is read by the benchmark only
-  height: 0.27                          # m, nominal base height: default command height, unit of the keys that end in _rel
-  defaults:                             # thresholds and pass rule of the suites; a suite can replace single keys
+  height: 0.27                          # m, nominal base height : default command height, unit of the keys that end in _rel
+  defaults:                             # thresholds and pass rule of the suites ; a suite can replace single keys
     thresholds: {rp_limit: 0.35, fall_tilt: 1.0, fall_height: 0.10}
     pass: {max_rmse_ss_vx: 0.35, max_rmse_ss_wz: 0.6, max_rp_exceed_frac: 0.2}
-  scene:                                # simulator parameters: a newtonian parameter file without the 'newtonian: ros__parameters:' wrapper (or the path of such a file)
+  scene:                                # simulator parameters : a newtonian parameter file without the 'newtonian: ros__parameters:' wrapper (or the path of such a file)
     # the scene needs a sensor with the ground-truth topic above, and drives that are not lazy (the robot stands at the start of each trial)
     sim:
       cuda_graph: true
       device: "cuda:0"                  # 'cpu' | 'cuda:0'
       viewer: "none"                      # 'gl' | 'none'
       substeps: 1
-      frame_rate: 500.0                 # Hz, one /clock message per frame: the MPPI node commands at this rate at most
+      frame_rate: 500.0                 # Hz, one /clock message per frame : the MPPI node commands at this rate at most
       viewer_rate: 40.0
       viewer_thread: false
       warmup_steps: 420
@@ -60,7 +60,7 @@ robot:                                  # everything that depends on the robot
           "*_thigh_joint": 0.9
           "*_calf_joint": -1.8
 
-    sensors:                            # name of sensor (also the default topic); rate in Hz
+    sensors:                            # name of sensor (also the default topic) ; rate in Hz
       imu: {type: "imu", site: "imu", rate: 100.0, topic: "/go2/sensors/imu"}
       odom: {type: "odometry", child_frame_id: "base_link", rate: 250.0, topic: "/go2/sensors/odometry"}
       joint_states: {type: "jointstate", joints: ["FR_*", "FL_*", "RR_*", "RL_*"], rate: 250.0, topic: "/go2/sensors/jointstate"}
@@ -74,20 +74,20 @@ robot:                                  # everything that depends on the robot
 
 controller:                             # the controller under test
   name: mppi_rs
-  command: {topic: /go2/base_command}   # newtonian_msgs/BaseCommand: vx, vy, yaw_rate, height
+  command: {topic: /go2/base_command}   # newtonian_msgs/BaseCommand : vx, vy, yaw_rate, height
   launch: {cmd: ["${MPPI_BIN}", "--ros-args", "--params-file", "${MPPI_CFG}", "-p", "use_sim_time:=true", "-r", "__node:=quadruped_mppi"]}
-  limits: {vx: [-0.5, 1.0], vy: [-0.5, 0.5], wz: [-1.0, 1.0]}   # claimed envelope; the axes frac_of / from_limits use it
-  rate_hz: 500                          # expected rate of the joint commands; fewer count as missed cycles
+  limits: {vx: [-0.5, 1.0], vy: [-0.5, 0.5], wz: [-1.0, 1.0]}   # claimed envelope ; the axes frac_of / from_limits use it
+  rate_hz: 500                          # expected rate of the joint commands ; fewer count as missed cycles
   reset: none                           # none | restart (new process for each trial)
   startup_timeout: 90
-  # other controllers: replace the block above. Examples for the Python reference controller (Go2 only):
+  # other controllers : replace the block above. Examples for the Python reference controller (Go2 only) :
   #   name: py_stand
   #   command: {topic: /go2/base_command}
   #   launch: {cmd: ["python3", "-m", "newtonian_benchmarks.examples.go2_stand", "--ros-args", "-p", "use_sim_time:=true", "-p", "rate:=125.0"]}
   #   limits: {vx: [-0.5, 1.0], vy: [-0.5, 0.5], wz: [-1.0, 1.0]}
   #   rate_hz: 125
   #   startup_timeout: 30
-  # "-p busy_ms:=14.0" burns wall time in each cycle: a controller that cannot keep its rate, to test the real-time check.
+  # "-p busy_ms:=14.0" burns wall time in each cycle : a controller that cannot keep its rate, to test the real-time check.
 
 trial: {duration: 9.0, settle: 1.0, profile: step}
 seeds: [0, 1]
@@ -118,7 +118,7 @@ axes:
   payload_frac: [0.0, 0.15, 0.3]
 
 suites:
-  smoke:                                                                          # 4 trials, about 1 min: check a setup
+  smoke:                                                                          # 4 trials, about 1 min : check a setup
     seeds: [0]
     trial: {duration: 5.0}
     cross: [{vx: {frac_of: vx, values: [0.0, 0.5]}}, {terrain: [flat, {kind: noise, amplitude_rel: 0.11, seed: 1}]}]
