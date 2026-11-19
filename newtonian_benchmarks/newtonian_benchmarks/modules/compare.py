@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from newtonian_benchmarks.modules import plots
 from newtonian_benchmarks.modules.report import GRID_CELLS, LEGEND, axes_of, cell, grid, grid_title, markdown_table, number, percent, summary
 
 
@@ -80,6 +81,12 @@ def write(dirs: list[Path], out: Path) -> Path:
         parts.append(f"## {grid_title(df=first, a=a, b=b)}")
         for label in labels:
             parts += [f"**{label}**", grid(df=frames[label].reset_index(), a=a, b=b)]
+
+    # interactive plots
+    links = [("Pass rate by axis", plots.pass_rate_by_axis(out=out, frames=frames)), ("Failed trials by reason", plots.failure_reasons(out=out, frames=frames))]
+    links = [(label, link) for label, link in links if link]
+    if links:
+        parts += ["## Plots", "\n".join(f"- [{label}]({link})" for label, link in links) + "\n- Timelines of failed trials : " + ", ".join(f"[{label}](report_{label}.md)" for label in labels)]
 
     # trials where the controllers differ
     passed = pd.DataFrame({label: df["pass"].astype(bool) for label, df in frames.items()})

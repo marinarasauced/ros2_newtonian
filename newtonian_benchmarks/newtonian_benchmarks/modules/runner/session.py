@@ -139,6 +139,7 @@ class Session:
         m["status"] = status
         m["rtf_used"] = rtf
         m["pass"] = bool(metrics.is_passed(m=m, rule=cfg.get("pass", {}))) and status == "ok"
+        m["fail_reason"] = "" if m["pass"] else metrics.failure_reason(m=m, rule=cfg.get("pass", {})) or "other"
         m["wall_s"] = time.monotonic() - wall0
         m["clock_jumps"] = node.clock_jumped_back
 

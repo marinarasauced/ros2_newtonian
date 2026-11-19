@@ -207,8 +207,12 @@ def write_scene(base: dict[str, Any], key: str, out: Path) -> Path:
     # terrain : one more environment, with the friction of the ground
     terrain = spec["terrain"]
     if terrain not in ("flat", None):
-        mu = rp["environments"].get("ground", {}).get("mu", 1.0)
-        rp.setdefault("environments", {})["terrain"] = {"type": "terrain", "mu": mu, **terrain}
+        ground = rp["environments"].get("ground", {})
+        rp.setdefault("environments", {})["terrain"] = {"type": "terrain", "mu": ground.get("mu", 1.0), **({"color": ground["color"]} if "color" in ground else {}), **terrain}
+
+        # a terrain that goes down replaces the ground plane, which would hide it
+        if terrain.get("direction") == "down":
+            rp["environments"] = {k: v for k, v in rp["environments"].items() if v.get("type") != "groundplane"}
 
     # values of 'sim' of the suite
     for k, v in spec["sim"].items():

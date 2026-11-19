@@ -61,4 +61,32 @@ def is_passed(m: dict[str, Any], rule: dict[str, float]) -> bool:
     return True
 
 
-__all__ = ["DEFAULTS", "METRICS", "Context", "Metric", "ORDER", "evaluate", "is_passed"]
+# metric names that give the same reason of failure
+REASONS = {"rmse": "tracking", "rp_exceed": "roll/pitch", "roll": "roll/pitch", "pitch": "roll/pitch", "recovery": "recovery"}
+
+
+def failure_reason(m: dict[str, Any], rule: dict[str, float]) -> str:
+    """
+    Returns the first reason why 'm' does not satisfy 'rule', or an empty string.
+    """
+    if m.get("status", "ok") != "ok":
+        return str(m["status"])
+    if not m.get("valid", False):
+        return "invalid"
+    if m.get("fell", True):
+        return "fell"
+
+    # limits : every 'max_<metric>' key
+    for key, limit in rule.items():
+        if key.startswith("max_"):
+            value = m.get(key[4:])
+            if value is None or not np.isfinite(value) or value > limit:
+                return next((reason for prefix, reason in REASONS.items() if key[4:].startswith(prefix)), key[4:])
+
+    if rule.get("require_recovery", 0) and not m.get("recovered", False):
+        return "recovery"
+
+    return ""
+
+
+__all__ = ["DEFAULTS", "METRICS", "Context", "Metric", "ORDER", "evaluate", "failure_reason", "is_passed"]

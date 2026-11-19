@@ -196,6 +196,7 @@ class BenchmarkRunner:
             thresholds = {**cfg.get("thresholds", {}), "cmd_period": 1.0 / float(ctl["rate_hz"]) if ctl.get("rate_hz") else None}
             m = metrics.evaluate(odom=d["odom"], js=[], cmd_rx=d["cmd_rx"], profile=profile, duration=duration, pushes=pushes, timing=timing, rtf_target=rtf, thresholds=thresholds)
             m["pass"] = bool(metrics.is_passed(m=m, rule=cfg.get("pass", {}))) and row.get("status") == "ok"
+            m["fail_reason"] = "" if m["pass"] else metrics.failure_reason(m={**m, "status": row.get("status", "ok")}, rule=cfg.get("pass", {})) or "other"
 
             # values that only the run knows
             for k in ("status", "wall_s", "clock_jumps", "rtf_used", "mech_power", "effort_max"):

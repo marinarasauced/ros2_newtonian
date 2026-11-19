@@ -14,6 +14,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from newtonian_benchmarks.modules import plots
+
 
 MEDIANS = ("rmse_ss_vx", "rmse_ss_vy", "rmse_ss_wz", "rp_exceed_frac", "recovery_time", "cmd_age_p99", "sim_rtf")
 
@@ -73,6 +75,7 @@ def _write_one(out: Path, df: pd.DataFrame, controller: str | None, path: Path) 
     else:
         _section(df=df, parts=parts)
 
+    parts += _failures(out=out, df=df, controller=controller)
     path.write_text("\n\n".join(parts) + "\n")
 
     return result
@@ -184,6 +187,22 @@ def axes_of(df: pd.DataFrame) -> list[str]:
     Returns the axes with more than one value.
     """
     return [c for c in df.columns if c.startswith("axis_") and df[c].nunique(dropna=False) > 1]
+
+
+def _failures(out: Path, df: pd.DataFrame, controller: str | None) -> list[str]:
+    """
+    Returns the reasons of the failures and the links to the timelines of the first failed trials.
+    """
+    counts = plots.reason_of(df=df).loc[lambda s: s != ""].value_counts()
+    if not len(counts):
+        return []
+
+    parts = ["## Failures", markdown_table(header=["Reason", "Trials"], rows=[[reason, str(n)] for reason, n in counts.items()])]
+    links = plots.failure_timelines(out=out, df=df, controller=controller)
+    if links:
+        parts += ["Timelines of the first failed trials (interactive) :", "\n".join(f"- [{label}]({link})" for label, link in links)]
+
+    return parts
 
 
 def _headline(df: pd.DataFrame, controller: str | None) -> str:
