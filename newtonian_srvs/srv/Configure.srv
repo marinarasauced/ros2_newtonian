@@ -1,0 +1,7 @@
+# This contains the benchmark hooks.
+
+string request
+---
+bool success
+string message
+string response
