@@ -23,43 +23,76 @@ if TYPE_CHECKING:
     from newtonian_benchmarks.node import BenchmarkNode
 
 
+def format_duration(seconds: float) -> str:
+    """
+    Returns 'seconds' as h, min, and s.
+    """
+    seconds = int(round(seconds))
+    hours, rest = divmod(seconds, 3600)
+    minutes, seconds = divmod(rest, 60)
+
+    if hours:
+        return f"{hours} h {minutes:02d} min"
+    if minutes:
+        return f"{minutes} min {seconds:02d} s"
+
+    return f"{seconds} s"
+
+
 class BenchmarkRunner:
     """
     Runs the trials of a config file and writes the results.
     """
 
-    def __init__(self, config: dict[str, Any], ctl: dict[str, Any], profile: dict[str, Any], out: Path, domain: int) -> None:
+    def __init__(self, config: dict[str, Any], controllers: list[dict[str, Any]], limits: dict[str, list[float]] | None, profile: dict[str, Any], out: Path, domain: int) -> None:
         """
-        Stores the config, the controller, the robot, the output folder, and the ROS domain.
+        Stores the config, the controllers, the limits of the commands, the robot, the output folder, and the ROS domain.
         """
         self.config = config
         self.suite = defaults(run=config)
-        self.ctl = ctl
+        self.controllers = controllers
+        self.limits = limits
         self.profile = profile
         self.out = Path(out)
         self.domain = int(domain)
 
     @classmethod
-    def from_yaml(cls, path: str, out: Path, domain: int = 60, rtf: float | None = None) -> BenchmarkRunner:
+    def from_yaml(cls, path: str, out: Path, domain: int = 60, rtf: float | None = None, only_controllers: list[str] | None = None) -> BenchmarkRunner:
         """
         Returns the runner of the config file 'path'.
         """
         run = load_yaml(path_or_name=path)
         profile = run.pop("robot", None)
-        ctl = run.pop("controller", None)
-        if not isinstance(profile, dict) or not isinstance(ctl, dict):
-            raise ValueError(f"{run['_path']} needs a 'robot' block and a 'controller' block")
+        controllers = run.pop("controllers", None)
+        single = run.pop("controller", None)
+        if controllers is None and single is not None:
+            controllers = [single]
+        if not isinstance(profile, dict) or not isinstance(controllers, list) or not controllers or not all(isinstance(c, dict) and "name" in c for c in controllers):
+            raise ValueError(f"{run['_path']} needs a 'robot' block and a 'controllers' list (or one 'controller' block) with a name for each")
+
+        names = [c["name"] for c in controllers]
+        if len(set(names)) != len(names):
+            raise ValueError(f"controller names must be different : {names}")
+
+        # the limits of the commands are the ones of the run, so that every controller gets the same commands
+        limits = run.pop("limits", None) or controllers[0].get("limits")
+
+        if only_controllers:
+            missing = [n for n in only_controllers if n not in names]
+            if missing:
+                raise ValueError(f"no controller named {missing} in {run['_path']} : {names}")
+            controllers = [c for c in controllers if c["name"] in only_controllers]
 
         if rtf is not None:
             run["rtf"] = rtf
 
-        return cls(config=apply_robot(run=run, profile=profile), ctl=ctl, profile=profile, out=out, domain=domain)
+        return cls(config=apply_robot(run=run, profile=profile), controllers=controllers, limits=limits, profile=profile, out=out, domain=domain)
 
     def trials(self, only: list[str] | None = None, limit: int | None = None) -> list[dict[str, Any]]:
         """
         Returns the trials of the suites.
         """
-        trials = expand_run(run=self.config, limits=self.ctl.get("limits"), only=only)
+        trials = expand_run(run=self.config, limits=self.limits, only=only)
 
         # terrain keys in units of the nominal height of this robot
         for t in trials:
@@ -79,7 +112,7 @@ class BenchmarkRunner:
         self._execute(node=node, trials=trials)
         rows = self.write_results(out=self.out)
 
-        print(f"{len(rows)} trials in {time.monotonic() - t0:.0f} s, {sum(1 for r in rows if r.get('pass'))} passed -> {self.out}/results.csv")
+        node.get_logger().info(f"{len(rows)} trials in {format_duration(seconds=time.monotonic() - t0)}, {sum(1 for r in rows if r.get('pass'))} passed -> {self.out}/results.csv")
 
     def write_suite(self, trials: list[dict[str, Any]]) -> None:
         """
@@ -89,7 +122,8 @@ class BenchmarkRunner:
         saved = {
             "suite": self.suite,
             "run": self.config,
-            "controller": self.ctl,
+            "controllers": self.controllers,
+            "limits": self.limits,
             "trials": len(trials),
             "suites": sorted({t["suite"] for t in trials}),
         }
@@ -97,7 +131,7 @@ class BenchmarkRunner:
 
     def write_report(self) -> None:
         """
-        Writes the report from results.csv.
+        Writes report.md from results.csv.
         """
         from newtonian_benchmarks.modules import report
 
@@ -127,14 +161,16 @@ class BenchmarkRunner:
         from newtonian_benchmarks.modules import report
 
         saved = json.loads((out / "suite.json").read_text())
-        ctl = saved["controller"]
+        controllers = {c["name"]: c for c in saved["controllers"]}
+        first = next(iter(controllers))
         suite = saved["suite"]
-        trials = {t["id"]: t for t in expand_run(run=saved.get("run", suite), limits=ctl.get("limits"))}
-        old = {row["id"]: row for row in BenchmarkRunner._read_rows(out=out)}
+        trials = {t["id"]: t for t in expand_run(run=saved.get("run", suite), limits=saved.get("limits"))}
 
         rows = []
-        for tid, row in old.items():
-            f = out / "traces" / f"{tid}.npz"
+        for row in BenchmarkRunner._read_rows(out=out):
+            tid = row["id"]
+            ctl = controllers.get(row.get("controller", first), controllers[first])
+            f = out / "traces" / ctl["name"] / f"{tid}.npz"
 
             # a trial without trace keeps its row
             if not f.exists() or tid not in trials:
@@ -166,7 +202,7 @@ class BenchmarkRunner:
                 if k in row and k not in m:
                     m[k] = row[k]
 
-            rows.append({k: v for k, v in row.items() if k.startswith("axis_") or k in ("id", "seed", "suite")} | m)
+            rows.append({k: v for k, v in row.items() if k.startswith("axis_") or k in ("id", "seed", "suite", "controller")} | m)
 
         BenchmarkRunner.write_results(out=out, rows=rows)
         report.write(out=out)
@@ -174,9 +210,9 @@ class BenchmarkRunner:
 
     def _execute(self, node: BenchmarkNode, trials: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """
-        Runs the trials and returns the rows.
+        Runs the trials with each controller and returns the rows.
         """
-        suite, ctl, out = self.suite, self.ctl, self.out
+        suite, out = self.suite, self.out
         env = dict(os.environ)
         env["ROS_DOMAIN_ID"] = str(self.domain)
         base = scene(profile=self.profile)
@@ -186,45 +222,76 @@ class BenchmarkRunner:
         for t in trials:
             groups.setdefault(scene_key(params=t["params"], suite=t.get("cfg", suite)), []).append(t)
 
+        logger = node.get_logger()
+        total = len(trials) * len(self.controllers)
+        start = time.monotonic()
         rows: list[dict[str, Any]] = []
         (out / "traces").mkdir(parents=True, exist_ok=True)
-        sink = (out / "results.jsonl").open("a")
+        sink = (out / "results.jsonl").open("w")
+
+        def record(t: dict[str, Any], m: dict[str, Any], controller: str) -> None:
+            """
+            Stores the row of a trial and logs the progress.
+            """
+            row = self._row(t=t, m=m, controller=controller)
+            rows.append(row)
+            sink.write(json.dumps(row) + "\n")
+            sink.flush()
+
+            elapsed = time.monotonic() - start
+            remaining = elapsed / len(rows) * (total - len(rows))
+            logger.info(
+                f"[{len(rows)}/{total}, {100 * len(rows) // total} %] {row['suite']} {controller} {t['id']} {t['axes']} "
+                f"pass={row['pass']} fell={row.get('fell')} status={row['status']} "
+                f"| elapsed {format_duration(seconds=elapsed)}, remaining about {format_duration(seconds=remaining)}"
+            )
 
         try:
             for gi, (key, items) in enumerate(groups.items()):
                 cfg = write_scene(base=base, key=key, out=out / "scenes" / f"{hashlib.sha1(key.encode()).hexdigest()[:8]}.yaml")
+                label = f"scene {gi + 1}/{len(groups)}"
 
-                # simulator and controller of the scene
+                # simulator of the scene
+                logger.info(f"{label} : {len(items)} trials, starting the simulator")
                 try:
-                    session = Session(suite=suite, ctl=ctl, scene_cfg=cfg, out=out, env=env, node=node, tag=f"g{gi}")
+                    session = Session(suite=suite, scene_cfg=cfg, out=out, env=env, node=node, tag=f"g{gi}")
                 except Exception as e:
-                    print(f"scene failed: {e}", flush=True)
-                    for t in items:
-                        row = self._row(t=t, m={"status": "scene_failed", "pass": False, "valid": False, "error": str(e)})
-                        rows.append(row)
-                        sink.write(json.dumps(row) + "\n")
+                    logger.error(f"{label} failed : {e}")
+                    for ctl in self.controllers:
+                        for t in items:
+                            record(t=t, m={"status": "scene_failed", "pass": False, "valid": False, "error": str(e)}, controller=ctl["name"])
                     continue
 
-                # trials of the scene
                 try:
-                    for t in items:
+                    for ctl in self.controllers:
+                        name = ctl["name"]
+
+                        # controller of the scene
+                        logger.info(f"{label}, controller {name} : starting")
                         try:
-                            m = session.run(t=t)
+                            session.start(ctl=ctl)
                         except Exception as e:
-                            m = {"status": "error", "pass": False, "valid": False, "error": f"{type(e).__name__}: {e}"}
+                            logger.error(f"{label}, controller {name} failed : {e}")
+                            for t in items:
+                                record(t=t, m={"status": "controller_failed", "pass": False, "valid": False, "error": str(e)}, controller=name)
+                            continue
 
-                            # a failed trial may leave the processes in a bad state : start them again
+                        # trials
+                        for t in items:
                             try:
-                                session.close()
-                                session = Session(suite=suite, ctl=ctl, scene_cfg=cfg, out=out, env=env, node=node, tag=f"g{gi}r")
-                            except Exception as e2:
-                                m["error"] += f" / restart failed: {e2}"
+                                m = session.run(t=t)
+                            except Exception as e:
+                                m = {"status": "error", "pass": False, "valid": False, "error": f"{type(e).__name__}: {e}"}
 
-                        row = self._row(t=t, m=m)
-                        rows.append(row)
-                        sink.write(json.dumps(row) + "\n")
-                        sink.flush()
-                        print(f"{row['suite']} {t['id']} {t['axes']} pass={row['pass']} fell={row.get('fell')} status={row['status']}", flush=True)
+                                # a failed trial may leave the processes in a bad state : start them again
+                                try:
+                                    session.close()
+                                    session = Session(suite=suite, scene_cfg=cfg, out=out, env=env, node=node, tag=f"g{gi}r")
+                                    session.start(ctl=ctl)
+                                except Exception as e2:
+                                    m["error"] += f" / restart failed: {e2}"
+
+                            record(t=t, m=m, controller=name)
                 finally:
                     session.close()
         finally:
@@ -232,13 +299,13 @@ class BenchmarkRunner:
 
         return rows
 
-    def _row(self, t: dict[str, Any], m: dict[str, Any]) -> dict[str, Any]:
+    def _row(self, t: dict[str, Any], m: dict[str, Any], controller: str) -> dict[str, Any]:
         """
-        Returns the row of trial 't'.
+        Returns the row of trial 't' of 'controller'.
         """
         axes = {f"axis_{k}": v for k, v in t["axes"].items()}
 
-        return {"id": t["id"], "suite": t.get("suite", self.suite.get("name")), "seed": t["seed"], **axes, **m}
+        return {"id": t["id"], "controller": controller, "suite": t.get("suite", self.suite.get("name")), "seed": t["seed"], **axes, **m}
 
     @staticmethod
     def _read_rows(out: Path) -> list[dict[str, Any]]:

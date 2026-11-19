@@ -32,6 +32,7 @@ setup(
     entry_points={
         'console_scripts': [
             'bench = newtonian_benchmarks.node:main',
+            'example = newtonian_benchmarks.example:main',
         ],
     },
 )

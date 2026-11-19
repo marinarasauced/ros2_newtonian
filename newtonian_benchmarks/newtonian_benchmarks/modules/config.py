@@ -17,6 +17,12 @@ def load_yaml(path_or_name: str) -> dict[str, Any]:
     """
     path = find_config(name=path_or_name)
     data = yaml.safe_load(path.read_text())
+
+    for value in data.values():
+        if isinstance(value, dict) and "ros__parameters" in value:
+            data = value["ros__parameters"]
+            break
+
     data["_path"] = str(path)
 
     return data

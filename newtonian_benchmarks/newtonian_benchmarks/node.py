@@ -70,6 +70,7 @@ class BenchmarkNode(Node):
         self.create_subscription(JointCommand, topics["joint_command"], self._on_command, QoSProfile(depth=50))
 
         # publisher and service client
+        self.command_topic = command_topic
         self.pub = self.create_publisher(BaseCommand, command_topic, QoSProfile(depth=5))
         self.configure_cli = self.create_client(Configure, "/newtonian/configure")
 
@@ -100,6 +101,17 @@ class BenchmarkNode(Node):
             raise RuntimeError(f"configure failed: {r.message}")
 
         return json.loads(r.response) if r.response else {}
+
+    def set_command_topic(self, topic: str) -> None:
+        """
+        Publishes the base command on 'topic'.
+        """
+        if topic == self.command_topic:
+            return
+
+        self.destroy_publisher(self.pub)
+        self.pub = self.create_publisher(BaseCommand, topic, QoSProfile(depth=5))
+        self.command_topic = topic
 
     def start(self, profile: dict[str, Any], duration: float) -> None:
         """
@@ -207,7 +219,9 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
     ap = argparse.ArgumentParser(description="newtonian robustness benchmark")
     ap.add_argument("--config", "--suite", dest="config", default="benchmarks", help="config file: name in config/ of this package, or a path. It holds the robot, the controller, and the suites")
     ap.add_argument("--only", help="comma-separated names of the suites of the file to run")
-    ap.add_argument("--out", required=True)
+    ap.add_argument("--only-controller", help="comma-separated names of the controllers of the file to run")
+    ap.add_argument("--out", required=True, help="folder of the results ; with --compare, the folder of compare.md")
+    ap.add_argument("--compare", nargs="+", metavar="FOLDER", help="compare the results folders of two or more controllers, run nothing")
     ap.add_argument("--reanalyze", action="store_true", help="compute the metrics of the traces in --out again, run nothing")
     ap.add_argument("--domain", type=int, default=60, help="ROS_DOMAIN_ID of the run (the simulator, the controller, and the benchmark node)")
     ap.add_argument("--limit", type=int, default=None, help="run only the first N trials")
@@ -223,12 +237,19 @@ def main(argv: list[str] | None = None) -> None:
     args = parse_arguments(argv)
     out = Path(args.out)
 
+    # results of several controllers side by side
+    if args.compare:
+        from newtonian_benchmarks.modules import compare
+
+        print(f"wrote {compare.write(dirs=[Path(d) for d in args.compare], out=out)}")
+        return
+
     # new metrics or thresholds for the traces of an earlier run
     if args.reanalyze:
         BenchmarkRunner.reanalyze(out=out)
         return
 
-    runner = BenchmarkRunner.from_yaml(path=args.config, out=out, domain=args.domain, rtf=args.rtf)
+    runner = BenchmarkRunner.from_yaml(path=args.config, out=out, domain=args.domain, rtf=args.rtf, only_controllers=args.only_controller.split(",") if args.only_controller else None)
 
     # the domain is set before ROS 2 starts
     os.environ["ROS_DOMAIN_ID"] = str(runner.domain)
@@ -239,7 +260,7 @@ def main(argv: list[str] | None = None) -> None:
         thresholds = runner.suite["thresholds"]
         node = BenchmarkNode(
             topics=runner.profile["topics"],
-            command_topic=runner.ctl["command"]["topic"],
+            command_topic=runner.controllers[0]["command"]["topic"],
             fall_tilt=float(thresholds.get("fall_tilt", 1.0)),
             fall_height=float(thresholds.get("fall_height", 0.10)),
         )

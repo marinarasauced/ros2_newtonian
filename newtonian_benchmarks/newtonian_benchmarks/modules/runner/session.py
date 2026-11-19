@@ -25,12 +25,13 @@ class Session:
     Simulator and controller of one scene.
     """
 
-    def __init__(self, suite: dict[str, Any], ctl: dict[str, Any], scene_cfg: Path, out: Path, env: dict[str, str], node: BenchmarkNode, tag: str) -> None:
+    def __init__(self, suite: dict[str, Any], scene_cfg: Path, out: Path, env: dict[str, str], node: BenchmarkNode, tag: str) -> None:
         """
-        Starts the simulator and the controller.
+        Starts the simulator.
         """
         self.suite = suite
-        self.ctl = ctl
+        self.ctl: dict[str, Any] = {}
+        self.rtf_used = 1.0 if suite.get("rtf", 1.0) == "auto" else float(suite.get("rtf", 1.0))
         self.out = out
         self.env = env
         self.node = node
@@ -41,7 +42,17 @@ class Session:
         cmd = ["ros2", "run", "newtonian", "sim", "--ros-args", "--params-file", str(scene_cfg)]
         self.sim = Process(cmd, out / "logs" / f"{tag}_sim.log", env)
         params = yaml.safe_load(scene_cfg.read_text())["newtonian"]["ros__parameters"]
-        self.sensors = [name for name in params.get("sensors", {}) if not name.endswith("_gt")]
+        truth = suite["robot_profile"]["topics"]["ground_truth"]
+        self.sensors = [name for name, sensor in params.get("sensors", {}).items() if sensor.get("topic", name) != truth]
+
+        # the service appears when the simulator is built ; a simulator that exited is reported at once
+        t0 = time.monotonic()
+        while not node.configure_cli.service_is_ready():
+            if not self.sim.is_alive():
+                raise RuntimeError(f"simulator exited, see {self.sim.log}")
+            if time.monotonic() - t0 > 90.0:
+                raise TimeoutError(f"service /newtonian/configure not available, see {self.sim.log}")
+            time.sleep(0.2)
 
         # facts about the scene
         info = node.configure({"query": "info"}, timeout=90.0)
@@ -50,16 +61,21 @@ class Session:
         self.gravity = float(info["gravity"])
         self.height = float(suite["trial"]["height"])
 
-        # controller
+    def start(self, ctl: dict[str, Any]) -> None:
+        """
+        Starts the controller 'ctl' and finds the real-time factor.
+        """
+        self.ctl = ctl
+        self.node.set_command_topic(topic=ctl["command"]["topic"])
         self._start_controller()
 
         # real-time factor : the one of the file, or the highest one at which both sides keep up
-        if suite.get("rtf", 1.0) == "auto":
-            self.rtf_used = self._calibrate(candidates=suite.get("rtf_candidates", [1.0, 1.25, 1.5, 2.0, 3.0, 4.0]))
-            print(f"[{tag}] real-time factor {self.rtf_used}; probes {json.dumps(self.calibration)}", flush=True)
-            (out / f"calibration_{tag}.json").write_text(json.dumps({"rtf": self.rtf_used, "probes": self.calibration}, indent=1))
+        if self.suite.get("rtf", 1.0) == "auto":
+            self.rtf_used = self._calibrate(candidates=self.suite.get("rtf_candidates", [1.0, 1.25, 1.5, 2.0, 3.0, 4.0]))
+            self.node.get_logger().info(f"[{self.tag}] {ctl['name']} : real-time factor {self.rtf_used} ; probes {json.dumps(self.calibration)}")
+            (self.out / f"calibration_{self.tag}_{ctl['name']}.json").write_text(json.dumps({"rtf": self.rtf_used, "probes": self.calibration}, indent=1))
         else:
-            self.rtf_used = float(suite.get("rtf", 1.0))
+            self.rtf_used = float(self.suite.get("rtf", 1.0))
 
     def run(self, t: dict[str, Any]) -> dict[str, Any]:
         """
@@ -128,7 +144,8 @@ class Session:
 
         # trace, for 'reanalyze'
         meta = {"profile": profile, "pushes": pushes, "timing": timing, "rtf": rtf, "duration": duration}
-        np.savez_compressed(self.out / "traces" / f"{t['id']}.npz", odom=odom, cmd_rx=cmd_rx, cmd_tx=np.array(node.cmd_tx), meta=json.dumps(meta))
+        (self.out / "traces" / self.ctl["name"]).mkdir(parents=True, exist_ok=True)
+        np.savez_compressed(self.out / "traces" / self.ctl["name"] / f"{t['id']}.npz", odom=odom, cmd_rx=cmd_rx, cmd_tx=np.array(node.cmd_tx), meta=json.dumps(meta))
 
         return m
 
