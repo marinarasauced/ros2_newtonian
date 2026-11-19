@@ -45,17 +45,28 @@ class Input(Plugin):
         self._msg = None
         self._msg_time = None
 
+        self.latency = p.get_float(key="latency", default=0.0, at_least=0.0)
+        self.jitter = p.get_float(key="jitter", default=0.0, at_least=0.0)
+        self.drop = p.get_float(key="drop", default=0.0, at_least=0.0)
+
+        self._arrived: list[Any] = []
+        self._queue: list[tuple[float, Any]] = []
+
     def callback(self, msg: Any) -> None:
         """
         Stores the last message; the timeout starts at the next step.
         """
-        self._msg = msg
-        self._msg_time = None
+        if self.latency == 0.0 and self.jitter == 0.0 and self.drop == 0.0 and not self._arrived and not self._queue:
+            self._msg = msg
+            self._msg_time = None
+            return
+        self._arrived.append(msg)
 
     def control(self, sim: NewtonianSimulator) -> None:
         """
         Applies the last message, or calls 'on_timeout' if it is older than 'timeout'.
         """
+        self._release(sim=sim)
         msg = self._msg
         if msg is None:
             return
@@ -87,6 +98,28 @@ class Input(Plugin):
         Called once when the last message is older than 'timeout'.
         """
 
+    def _release(self, sim: NewtonianSimulator) -> None:
+        """
+        Moves any messages that have arrived into the delay queue and updates the current due message.
+        """
+        arrived, self._arrived = self._arrived, []
+        for msg in arrived:
+            if self.drop > 0.0 and sim.rng.random() < self.drop:
+                continue
+            delay = self.latency + (float(sim.rng.uniform(low=-self.jitter, high=self.jitter)) if self.jitter > 0.0 else 0.0)
+            self._queue.append((sim.sim_time + max(delay, 0.0), msg))
+
+        if not self._queue:
+            return
+
+        self._queue.sort(key=lambda item: item[0])
+        now = sim.sim_time + 1.0e-9
+        due = [m for t, m in self._queue if t <= now]
+        if due:
+            self._queue = [(t, m) for t, m in self._queue if t > now]
+            self._msg = due[-1]
+            self._msg_time = None
+
     def reset(self) -> None:
         """
         Clears the last message.
@@ -95,3 +128,5 @@ class Input(Plugin):
 
         self._msg = None
         self._msg_time = None
+        self._arrived = []
+        self._queue = []
