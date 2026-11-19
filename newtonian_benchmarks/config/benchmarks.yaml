@@ -1,0 +1,140 @@
+# The whole benchmark in one file: robot (with its simulator scene), controller, factors to vary, and suites.
+# Run it with: ros2 run newtonian_benchmarks bench --config benchmarks --out results/run
+#
+# The sweep part (trial, axes, suites) does not depend on the robot:
+#   - velocities are fractions of the limits of the controller (controller.limits),
+#   - pushes are multiples of the body weight (force_bw), payloads are fractions of the robot mass (payload_frac),
+#   - terrain sizes ending in _rel are multiples of the nominal height of the robot (robot.height).
+# 'axes' is a library of factors. Each suite crosses the axes it lists (full product, or 'sampling: random').
+# Suites may cross the same axes with other partners. Keys at the top level are the defaults of all suites.
+name: benchmarks
+rtf: 1.0                                # real-time factor; 'auto' finds the highest factor at which the simulator and the controller keep up
+
+robot:                                  # everything that depends on the robot
+  name: go2
+  topics: {ground_truth: /go2/gt/odometry, joint_state: /go2/sensors/jointstate, joint_command: /go2/control}   # ground truth is read by the benchmark only
+  height: 0.27                          # m, nominal base height: default command height, unit of the keys that end in _rel
+  defaults:                             # thresholds and pass rule of the suites; a suite can replace single keys
+    thresholds: {rp_limit: 0.35, fall_tilt: 1.0, fall_height: 0.10}
+    pass: {max_rmse_ss_vx: 0.35, max_rmse_ss_wz: 0.6, max_rp_exceed_frac: 0.2}
+  scene:                                # simulator parameters: a newtonian parameter file without the 'newtonian: ros__parameters:' wrapper (or the path of such a file)
+    # the scene needs a sensor with the ground-truth topic above, and drives that are not lazy (the robot stands at the start of each trial)
+    sim:
+      cuda_graph: true
+      device: "cuda:0"                  # 'cpu' | 'cuda:0'
+      viewer: "none"                      # 'gl' | 'none'
+      substeps: 1
+      frame_rate: 500.0                 # Hz, one /clock message per frame: the MPPI node commands at this rate at most
+      viewer_rate: 40.0
+      viewer_thread: false
+      warmup_steps: 420
+      real_time_factor: 1.0
+
+    solver:
+      type: "mujoco"                    # 'featherstone' | 'kamino' | 'mujoco' | 'xpbd'
+
+      mujoco:
+        iterations: 50
+        ls_iterations: 50
+        cone: "elliptic"
+        impratio: 100.0
+        nconmax: 200
+        njmax: 600
+
+    environments:
+      ground: {type: "groundplane", mu: 1.0, color: [0.474, 0.470, 0.474]}
+
+    robots:
+      unitree_go2:
+        type: "mjcf"
+        file: "package://newtonian/descriptions/quadrupeds/unitree_go2/go2.xml"
+        pose: [0.0, 0.0, -0.172, 0.0, 0.0, 0.0]
+        floating: true
+        loader_args:
+          enable_self_collisions: false
+        drives:
+          hips_and_thights: {joints: ["*_hip_joint", "*_thigh_joint"], lazy: false, mode: "position_velocity", ke: 100.0, kd: 2.0, effort_limit: 23.7}
+          calves: {joints: "*_calf_joint", lazy: false, mode: "position_velocity", ke: 100.0, kd: 2.0, effort_limit: 45.43}
+        initial_joint_q:
+          "*_hip_joint": 0.0
+          "*_thigh_joint": 0.9
+          "*_calf_joint": -1.8
+
+    sensors:                            # name of sensor (also the default topic); rate in Hz
+      imu: {type: "imu", site: "imu", rate: 100.0, topic: "/go2/sensors/imu"}
+      odom: {type: "odometry", child_frame_id: "base_link", rate: 250.0, topic: "/go2/sensors/odometry"}
+      joint_states: {type: "jointstate", joints: ["FR_*", "FL_*", "RR_*", "RL_*"], rate: 250.0, topic: "/go2/sensors/jointstate"}
+      odom_gt: {type: "odometry", child_frame_id: "base_link", rate: 250.0, topic: "/go2/gt/odometry"}
+      feet: {type: "contact_scalar", shapes: ["FR", "FL", "RR", "RL"], rate: 100.0, topic: "/go2/sensors/contacts"}
+
+    inputs:
+      joint_targets:
+        type: "jointcommand"
+        topic: "/go2/control"
+
+controller:                             # the controller under test
+  name: mppi_rs
+  command: {topic: /go2/base_command}   # newtonian_msgs/BaseCommand: vx, vy, yaw_rate, height
+  launch: {cmd: ["${MPPI_BIN}", "--ros-args", "--params-file", "${MPPI_CFG}", "-p", "use_sim_time:=true", "-r", "__node:=quadruped_mppi"]}
+  limits: {vx: [-0.5, 1.0], vy: [-0.5, 0.5], wz: [-1.0, 1.0]}   # claimed envelope; the axes frac_of / from_limits use it
+  rate_hz: 500                          # expected rate of the joint commands; fewer count as missed cycles
+  reset: none                           # none | restart (new process for each trial)
+  startup_timeout: 90
+  # other controllers: replace the block above. Examples for the Python reference controller (Go2 only):
+  #   name: py_stand
+  #   command: {topic: /go2/base_command}
+  #   launch: {cmd: ["python3", "-m", "newtonian_benchmarks.examples.go2_stand", "--ros-args", "-p", "use_sim_time:=true", "-p", "rate:=125.0"]}
+  #   limits: {vx: [-0.5, 1.0], vy: [-0.5, 0.5], wz: [-1.0, 1.0]}
+  #   rate_hz: 125
+  #   startup_timeout: 30
+  # "-p busy_ms:=14.0" burns wall time in each cycle: a controller that cannot keep its rate, to test the real-time check.
+
+trial: {duration: 9.0, settle: 1.0, profile: step}
+seeds: [0, 1]
+
+axes:
+  vx: {frac_of: vx, values: [0.0, 0.3, 0.6, 1.0]}
+  vy: {from_limits: vy, n: 3}
+  wz: {from_limits: wz, n: 5}
+  terrain:
+    - flat
+    - {kind: noise, amplitude_rel: 0.07, seed: 1}
+    - {kind: noise, amplitude_rel: 0.15, seed: 1}
+    - {kind: slope, angle: 10.0, start: 1.5}
+    - {kind: stairs, step_height_rel: 0.2, start: 1.5}
+  friction: [1.0, 0.5, 0.25]
+  push:
+    - none
+    - {dir: "+x", force_bw: 0.4, duration: 0.2, at: 3.0}
+    - {dir: "+x", force_bw: 0.8, duration: 0.2, at: 3.0}
+    - {dir: "-x", force_bw: 0.4, duration: 0.2, at: 3.0}
+    - {dir: "-x", force_bw: 0.8, duration: 0.2, at: 3.0}
+    - {dir: "+y", force_bw: 0.4, duration: 0.2, at: 3.0}
+    - {dir: "+y", force_bw: 0.8, duration: 0.2, at: 3.0}
+    - {dir: "-y", force_bw: 0.4, duration: 0.2, at: 3.0}
+    - {dir: "-y", force_bw: 0.8, duration: 0.2, at: 3.0}
+  cmd_latency: [0.0, 0.01, 0.02, 0.04]
+  sensor_latency: [0.0, 0.02, 0.04]
+  payload_frac: [0.0, 0.15, 0.3]
+
+suites:
+  smoke:                                                                          # 4 trials, about 1 min: check a setup
+    seeds: [0]
+    trial: {duration: 5.0}
+    cross: [{vx: {frac_of: vx, values: [0.0, 0.5]}}, {terrain: [flat, {kind: noise, amplitude_rel: 0.11, seed: 1}]}]
+  velocity:               {cross: [vx, vy, wz]}                                   # 4 x 3 x 5 = 60
+  speed_on_terrain:       {cross: [vx, wz, terrain]}                              # 4 x 5 x 5 = 100
+  terrain_friction_speed: {cross: [terrain, friction, vx]}                        # 5 x 3 x 4 = 60
+  push_on_terrain:                                                                # 9 x 5 x 2 = 90
+    pass: {require_recovery: 1}
+    cross: [push, terrain, {vx: {frac_of: vx, values: [0.0, 0.5]}}]
+  push_on_friction:                                                               # 9 x 3 x 2 = 54
+    pass: {require_recovery: 1}
+    cross: [push, friction, {vx: {frac_of: vx, values: [0.0, 0.5]}}]
+  latency:                {cross: [cmd_latency, sensor_latency, vx]}              # 4 x 3 x 4 = 48
+  payload:                {cross: [payload_frac, friction, vx]}                   # 3 x 3 x 4 = 36
+  everything_random:                                                              # 120 random points of the product of all factors
+    pass: {require_recovery: 1}
+    sampling: random
+    samples: 120
+    cross: [vx, wz, terrain, friction, push, cmd_latency, sensor_latency, payload_frac]
