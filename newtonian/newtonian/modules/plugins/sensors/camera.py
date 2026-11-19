@@ -9,8 +9,8 @@ import warp as wp
 from builtin_interfaces.msg import Time
 from sensor_msgs.msg import CameraInfo, Image
 
-from newtonian.modules.params import Parameters
-from newtonian.modules.plugins.sensors.base import SENSORS, Cache, Sensor, SensorRaytrace
+from newtonian.modules.params import ParameterError, Parameters
+from newtonian.modules.plugins.sensors.base import SENSORS, Cache, Sensor, SensorRaytrace, noise
 
 if TYPE_CHECKING:
     from newtonian.modules.physics.simulator import NewtonianSimulator
@@ -81,6 +81,7 @@ class SensorCameraColor(_Base):
         """
         super().on_model(sim=sim)
 
+        self.noise_std = self.p.get_float(key="noise_std", default=0.0, at_least=0.0)
         self.color = self.tracer.allocate_image_color(view_count=1, width=self.width, height=self.height)
 
     def to_msg(self, stamp: Time) -> Image:
@@ -96,7 +97,12 @@ class SensorCameraColor(_Base):
         cache.bvh_refit_shapes()
         self.tracer.update(state=sim.state, camera_transforms=self.transform(sim=sim, cache=cache), camera_rays=self.rays, color_image=self.color)
         rgba = cast(typ="wp.array", val=self.color).numpy().reshape(self.height, self.width).view(np.uint8).reshape(self.height, self.width, 4)
-        self.data = np.ascontiguousarray(rgba[..., :3])
+        rgb = rgba[..., :3]
+
+        if self.noise_std > 0.0:
+            rgb = np.clip(rgb + noise(sim=sim, std=self.noise_std, shape=rgb.shape), 0.0, 255.0).astype(np.uint8)
+
+        self.data = np.ascontiguousarray(rgb)
 
 
 @SENSORS.register("camera_depth")
@@ -110,6 +116,12 @@ class SensorCameraDepth(_Base):
         Creates the depth image output.
         """
         super().on_model(sim=sim)
+        p = self.p
+
+        self.noise_std = p.get_float(key="noise_std", default=0.0, at_least=0.0)
+        self.dropout = p.get_float(key="dropout", default=0.0, at_least=0.0)
+        if self.dropout > 1.0:
+            raise ParameterError(f"{p.prefix}dropout expected at most 1 but got {self.dropout}")
 
         self.depth = self.tracer.allocate_image_depth_forward(view_count=1, width=self.width, height=self.height)
 
@@ -127,6 +139,12 @@ class SensorCameraDepth(_Base):
         self.tracer.update(state=sim.state, camera_transforms=self.transform(sim=sim, cache=cache), camera_rays=self.rays, forward_depth_image=self.depth)
         depth = cast(typ="wp.array", val=self.depth).numpy().reshape(self.height, self.width).astype(np.float32)
         depth[depth <= 0.0] = np.nan
+
+        if self.noise_std > 0.0:
+            depth = np.maximum(depth + noise(sim=sim, std=self.noise_std, shape=depth.shape).astype(np.float32), 0.0)
+        if self.dropout > 0.0:
+            depth[sim.rng.random(depth.shape) < self.dropout] = np.nan
+
         self.data = depth
 
 
