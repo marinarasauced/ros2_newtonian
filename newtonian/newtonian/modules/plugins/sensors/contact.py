@@ -11,7 +11,7 @@ from geometry_msgs.msg import WrenchStamped
 from sensor_msgs.msg import JointState
 
 from newtonian.modules.arrays import to_numpy
-from newtonian.modules.plugins.sensors.base import SENSORS, Cache, Sensor
+from newtonian.modules.plugins.sensors.base import SENSORS, Cache, Sensor, noise
 
 if TYPE_CHECKING:
     from newtonian.modules.physics.simulator import NewtonianSimulator
@@ -39,6 +39,7 @@ class _Base(Sensor):
         self.names = [labels[i] for i in items]
         self.sensor = newton.sensors.SensorContact(model=sim.model, sensing_bodies=None if by_shapes else items, sensing_shapes=items if by_shapes else None)
         self.frame_id = self.frame_id or "world"
+        self.force_std = p.get_float(key="force_noise_std", default=0.0, at_least=0.0)
         sim.require_contacts()
 
     def update(self, sim: NewtonianSimulator, cache: Cache) -> None:
@@ -75,7 +76,12 @@ class SensorContactForce(_Base):
         """
         Returns the force vector.
         """
-        return self._wrench(stamp=stamp, data=self.data.sum(axis=0))
+        return self._wrench(stamp=stamp, data=self.force)
+
+    def update(self, sim: NewtonianSimulator, cache: Cache) -> None:
+        """ """
+        super().update(sim=sim, cache=cache)
+        self.force = self.data.sum(axis=0) + noise(sim=sim, std=self.force_std, shape=3)
 
 
 @SENSORS.register("contact_scalar")
@@ -94,6 +100,11 @@ class SensorContactScalar(_Base):
         msg.header.frame_id = self.frame_id
 
         msg.name = self.names
-        msg.effort = np.linalg.norm(self.data, axis=1).astype(float).tolist()
-        
+        msg.effort = self.magnitude.astype(float).tolist()
+
         return msg
+
+    def update(self, sim: NewtonianSimulator, cache: Cache) -> None:
+        """ """
+        super().update(sim=sim, cache=cache)
+        self.magnitude = np.linalg.norm(self.data, axis=1) + noise(sim=sim, std=self.force_std, shape=len(self.names))
