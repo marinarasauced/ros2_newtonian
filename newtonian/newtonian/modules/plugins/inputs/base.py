@@ -45,6 +45,10 @@ class Input(Plugin):
         self._msg = None
         self._msg_time = None
 
+        self.latency = p.get_float(key="latency", default=0.0, at_least=0.0)
+        self.jitter = p.get_float(key="jitter", default=0.0, at_least=0.0)
+        self.drop = p.get_float(key="drop", default=0.0, at_least=0.0)
+
     def callback(self, msg: Any) -> None:
         """
         Stores the last message; the timeout starts at the next step.
