@@ -48,6 +48,7 @@ class BenchmarkNode(Node):
         self.odom: list[tuple] = []
         self.js: list[tuple] = []
         self.cmd_rx: list[tuple[float, float]] = []
+        self.cmd_u: list[tuple[float, list[float], list[float]]] = []
         self.cmd_tx: list[tuple[float, float, float, float, float]] = []
         self.recording = False
 
@@ -117,7 +118,7 @@ class BenchmarkNode(Node):
         """
         Starts the command and the recording.
         """
-        self.odom, self.js, self.cmd_rx, self.cmd_tx = [], [], [], []
+        self.odom, self.js, self.cmd_rx, self.cmd_tx, self.cmd_u = [], [], [], [], []
         self.fall_time = None
         self.done = False
         self.clock_jumped_back = 0
@@ -209,7 +210,9 @@ class BenchmarkNode(Node):
         if not self.recording:
             return
 
-        self.cmd_rx.append((self.clock, msg.header.stamp.sec + 1.0e-9 * msg.header.stamp.nanosec))
+        stamp = msg.header.stamp.sec + 1.0e-9 * msg.header.stamp.nanosec
+        self.cmd_rx.append((self.clock, stamp))
+        self.cmd_u.append((stamp, list(msg.position), list(msg.effort)))
 
 
 def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:

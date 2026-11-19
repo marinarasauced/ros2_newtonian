@@ -39,6 +39,23 @@ def format_duration(seconds: float) -> str:
     return f"{seconds} s"
 
 
+def speed(row: dict[str, Any]) -> str:
+    """
+    Returns the simulator speed and the controller rate of a trial, and which one is below its target.
+    """
+    sim, target, ratio = row.get("sim_rtf"), row.get("rtf_used"), row.get("cmd_rate_ratio")
+    if not isinstance(sim, (int, float)) or not isinstance(target, (int, float)) or not np.isfinite(sim):
+        return "no timing"
+
+    limit = "simulator below target" if sim < 0.97 * target else "controller below its rate" if isinstance(ratio, (int, float)) and ratio < 0.9 else "both at target"
+    maximum = row.get("sim_rtf_max")
+    text = f"sim {sim:.2f}x of {target:.2f}x" + (f" (max about {maximum:.1f}x)" if isinstance(maximum, (int, float)) else "")
+    if isinstance(ratio, (int, float)) and isinstance(row.get("cmd_rate_hz"), (int, float)):
+        text += f", controller {row['cmd_rate_hz']:.0f} Hz ({100.0 * ratio:.0f} % of expected)"
+
+    return f"{text} : {limit}"
+
+
 class BenchmarkRunner:
     """
     Runs the trials of a config file and writes the results.
@@ -244,6 +261,7 @@ class BenchmarkRunner:
             logger.info(
                 f"[{len(rows)}/{total}, {100 * len(rows) // total} %] {row['suite']} {controller} {t['id']} {t['axes']} "
                 f"pass={row['pass']} fell={row.get('fell')} status={row['status']} "
+                f"| {speed(row=row)} "
                 f"| elapsed {format_duration(seconds=elapsed)}, remaining about {format_duration(seconds=remaining)}"
             )
 

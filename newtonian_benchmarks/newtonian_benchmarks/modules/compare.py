@@ -13,8 +13,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from newtonian_benchmarks.modules import plots
-from newtonian_benchmarks.modules.report import GRID_CELLS, LEGEND, axes_of, cell, grid, grid_title, markdown_table, number, percent, summary
+from newtonian_benchmarks.modules.report import GRID_CELLS, LEGEND, axes_of, cell, grid, grid_title, markdown_table, number, percent, summary, trials_section
 
 
 # trials listed in the table of differences
@@ -40,7 +39,7 @@ def write(dirs: list[Path], out: Path) -> Path:
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
 
-    frames = _frames(dirs=dirs)
+    frames, sources = _frames(dirs=dirs)
     labels = list(frames)
     if len(labels) < 2:
         raise ValueError("a comparison needs the results of two or more controllers")
@@ -82,11 +81,8 @@ def write(dirs: list[Path], out: Path) -> Path:
         for label in labels:
             parts += [f"**{label}**", grid(df=frames[label].reset_index(), a=a, b=b)]
 
-    # interactive plots
-    links = [("Pass rate by axis", plots.pass_rate_by_axis(out=out, frames=frames)), ("Failed trials by reason", plots.failure_reasons(out=out, frames=frames))]
-    links = [(label, link) for label, link in links if link]
-    if links:
-        parts += ["## Plots", "\n".join(f"- [{label}]({link})" for label, link in links) + "\n- Timelines of failed trials : " + ", ".join(f"[{label}](report_{label}.md)" for label in labels)]
+    # plots of a few trials, the controllers on the same axes
+    parts += trials_section(out=out, frames={label: df.reset_index() for label, df in frames.items()}, sources=sources)
 
     # trials where the controllers differ
     passed = pd.DataFrame({label: df["pass"].astype(bool) for label, df in frames.items()})
@@ -110,20 +106,23 @@ def write(dirs: list[Path], out: Path) -> Path:
     return path
 
 
-def _frames(dirs: list[Path]) -> dict[str, pd.DataFrame]:
+def _frames(dirs: list[Path]) -> tuple[dict[str, pd.DataFrame], dict[str, tuple[Path, str]]]:
     """
-    Returns the trials of each controller of the results folders, by trial id.
+    Returns the trials of each controller of the results folders by trial id, and the folder and controller name of its traces.
     """
     frames: dict[str, pd.DataFrame] = {}
+    sources: dict[str, tuple[Path, str]] = {}
 
     for d in dirs:
         df = pd.read_csv(d / "results.csv")
         parts = {str(name): part for name, part in df.groupby("controller", sort=False)} if "controller" in df else {_name(folder=d): df}
 
-        for label, part in parts.items():
-            frames[label if label not in frames else f"{label} ({d.name})"] = part.set_index("id")
+        for name, part in parts.items():
+            label = name if name not in frames else f"{name} ({d.name})"
+            frames[label] = part.set_index("id")
+            sources[label] = (d, name)
 
-    return frames
+    return frames, sources
 
 
 def _name(folder: Path) -> str:

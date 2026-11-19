@@ -20,6 +20,19 @@ if TYPE_CHECKING:
     from newtonian_benchmarks.node import BenchmarkNode
 
 
+def _stack(rows: list, joints: int) -> np.ndarray:
+    """
+    Returns the rows (time, first list, second list) as one array of time, then 'joints' values of each list.
+    """
+    out = np.zeros((len(rows), 1 + 2 * joints))
+    for i, (t, a, b) in enumerate(rows):
+        out[i, 0] = t
+        out[i, 1 : 1 + min(len(a), joints)] = a[:joints]
+        out[i, 1 + joints : 1 + joints + min(len(b), joints)] = b[:joints]
+
+    return out
+
+
 class Session:
     """
     Simulator and controller of one scene.
@@ -138,6 +151,10 @@ class Session:
         m = metrics.evaluate(odom=odom, js=node.js, cmd_rx=cmd_rx, profile=profile, duration=duration, pushes=pushes, timing=timing, rtf_target=rtf, thresholds=thresholds)
         m["status"] = status
         m["rtf_used"] = rtf
+
+        # speed the simulator could reach : sim time of a frame over the time it takes
+        if timing.get("step_ms_p50"):
+            m["sim_rtf_max"] = 1000.0 / self.frame_rate / float(timing["step_ms_p50"])
         m["pass"] = bool(metrics.is_passed(m=m, rule=cfg.get("pass", {}))) and status == "ok"
         m["fail_reason"] = "" if m["pass"] else metrics.failure_reason(m=m, rule=cfg.get("pass", {})) or "other"
         m["wall_s"] = time.monotonic() - wall0
@@ -146,7 +163,16 @@ class Session:
         # trace, for 'reanalyze'
         meta = {"profile": profile, "pushes": pushes, "timing": timing, "rtf": rtf, "duration": duration}
         (self.out / "traces" / self.ctl["name"]).mkdir(parents=True, exist_ok=True)
-        np.savez_compressed(self.out / "traces" / self.ctl["name"] / f"{t['id']}.npz", odom=odom, cmd_rx=cmd_rx, cmd_tx=np.array(node.cmd_tx), meta=json.dumps(meta))
+        joints = len(node.cmd_u[0][1]) if node.cmd_u else 0
+        np.savez_compressed(
+            self.out / "traces" / self.ctl["name"] / f"{t['id']}.npz",
+            odom=odom,
+            cmd_rx=cmd_rx,
+            cmd_tx=np.array(node.cmd_tx),
+            cmd_u=_stack(rows=node.cmd_u, joints=joints),
+            js_u=_stack(rows=node.js, joints=joints),
+            meta=json.dumps({**meta, "joints": joints}),
+        )
 
         return m
 

@@ -139,7 +139,7 @@ newtonian_benchmarks/
       hooks.py                   requests to the simulator hooks (/newtonian/configure)
       report.py                  report.md and summary.json
       compare.py                 compare.md : controllers side by side
-      plots.py                   interactive plots (Plotly)
+      plots.py                   plots (matplotlib)
       runner/
         runner.py                BenchmarkRunner : trials, results, reanalyze
         session.py               Session : one simulator + controller for one scene
@@ -177,15 +177,13 @@ The runner starts one simulator and one controller for each scene (terrain), and
 
 With two or more `controllers` in the config file, one run does every trial with each of them and writes `report_<name>.md` and `compare.md`. `--compare` does the same for runs made apart : it reads the `results.csv` of two or more runs of the same suites and writes `compare.md` : a scorecard of the controllers (best value in bold), pass rates by suite and by axis, one grid for each pair of axes and each controller, and a table of the trials where they differ. The trials are joined by their id, which depends on the axes and the seed only, so the runs must use the same config except for the controllers.
 
-The plots are interactive files in `plots/` (Plotly, open them in a browser, zoom and hover) with the library next to them, linked from the markdown :
+Three plots for each of a few trials (the first failed ones, then the largest velocity error) are images in `plots/`, shown in the markdown reports. With several controllers, each plot has one line for each controller on the same axes :
 
-- `pass_rate_by_axis.html` : pass rate against each varied axis, one line for each controller (`compare.md`) ;
-- `failure_reasons.html` : failed trials by reason (fell, tracking, roll/pitch, recovery, or a run error), one bar for each controller (`compare.md`) ;
-- `timeline_<controller>_<id>.html` : height, roll and pitch, and velocities against the commands for the first 3 failed trials of a controller, with the pushes and the fall marked (`report_<name>.md`, or `report.md`).
-
-The plots need the Python package `plotly`.
+- `command_tracking_<axes>.png` : `vx`, `vy`, and the yaw rate against their commands ;
+- `base_states_<axes>.png` : base height, roll, pitch, and angular speed, with the limits of the fall and of the attitude ;
+- `control_inputs_<axes>.png` : commanded joint positions (change from the first command), joint efforts, and the period of the commands. The pushes are marked in orange. `<axes>` is the varied axes of the trial, for example `terrain-flat_vx-0.5`. Every line has a key in the legend of its panel.
 | `traces/<name>/<id>.npz` | ground-truth odometry, controller command times, command profile, timing |
-| `plots/` | interactive Plotly files (see below) |
+| `plots/` | images of the plots (see below) |
 | `logs/` | log of each simulator and controller process |
 
 The run uses one ROS domain (`--domain`, default 60) for the simulator, the controller, and the benchmark node. Runs are one after the other ; there are no parallel jobs.
@@ -204,6 +202,21 @@ The axis `terrain` builds a heightfield around the origin. A flat disk of 0.6 m 
 | `step`, step down | the same, with `direction: down` | <img src="docs/images/terrains/step_down.png" width="420"> |
 
 In the benchmark, `amplitude_rel` and `step_height_rel` are multiples of the standing height of the robot. The two noise images are `amplitude_rel: 0.07` and `0.15`. The steps are `{kind: step, step_height_rel: 0.2, start: 1.5}`, and the same with `direction: down`. `direction: down` mirrors the heights : the ground goes down by the step height after `start`.
+
+### Example results
+
+`bench --only smoke` with the Rust MPPI controller and the example controller (two entries in `controllers`) writes `compare.md`. The example holds the stand pose, so it fails the trials with `vx` 0.5. These are the plots of one of them, from `compare.md`.
+
+| Controller | Pass | Survival | Error vx | Error wz |
+|---|---|---|---|---|
+| mppi_rs | **100 %** | 100 % | **0.129** | 0.372 |
+| example | 50 % | 100 % | 0.250 | **0.000** |
+
+![Command tracking](docs/images/results/tracking.png)
+
+![Base states](docs/images/results/base.png)
+
+![Control inputs](docs/images/results/control.png)
 
 ### Metrics
 

@@ -17,7 +17,7 @@ import pandas as pd
 from newtonian_benchmarks.modules import plots
 
 
-MEDIANS = ("rmse_ss_vx", "rmse_ss_vy", "rmse_ss_wz", "rp_exceed_frac", "recovery_time", "cmd_age_p99", "sim_rtf")
+MEDIANS = ("rmse_ss_vx", "rmse_ss_vy", "rmse_ss_wz", "rp_exceed_frac", "recovery_time", "cmd_age_p99", "sim_rtf", "sim_rtf_max", "cmd_rate_ratio")
 
 # grids with more cells than this are skipped
 GRID_CELLS = 60
@@ -42,7 +42,7 @@ def write(out: Path) -> Path:
     for name in names:
         part = df if name is None else df[df["controller"] == name]
         path = out / ("report.md" if len(names) == 1 else f"report_{name}.md")
-        results[name] = _write_one(out=out, df=part, controller=name, path=path)
+        results[name] = _write_one(out=out, df=part, controller=name, path=path, single=len(names) == 1)
 
     (out / "summary.json").write_text(json.dumps(results[names[0]] if len(names) == 1 else results, indent=1))
 
@@ -55,7 +55,7 @@ def write(out: Path) -> Path:
     return out / "report.md"
 
 
-def _write_one(out: Path, df: pd.DataFrame, controller: str | None, path: Path) -> dict[str, Any]:
+def _write_one(out: Path, df: pd.DataFrame, controller: str | None, path: Path, single: bool) -> dict[str, Any]:
     """
     Writes the report of one controller and returns its numbers.
     """
@@ -75,7 +75,8 @@ def _write_one(out: Path, df: pd.DataFrame, controller: str | None, path: Path) 
     else:
         _section(df=df, parts=parts)
 
-    parts += _failures(out=out, df=df, controller=controller)
+    parts += _failures(df=df)
+    parts += trials_section(out=out, frames={controller or "run": df}, sources={controller or "run": (out, controller or "")})
     path.write_text("\n\n".join(parts) + "\n")
 
     return result
@@ -122,6 +123,8 @@ def scorecard(s: dict[str, Any]) -> str:
         ["Roll/pitch over the limit, median", percent(x=s.get("rp_exceed_frac_median"))],
         ["Recovery time, median (s)", number(x=s.get("recovery_time_median"))],
         ["Simulator speed, median", number(x=s.get("sim_rtf_median"), digits=2)],
+        ["Simulator speed possible, median", number(x=s.get("sim_rtf_max_median"), digits=1)],
+        ["Controller rate, share of expected, median", percent(x=s.get("cmd_rate_ratio_median"))],
     ]
 
     return markdown_table(header=["Metric", "Value"], rows=rows)
@@ -189,18 +192,29 @@ def axes_of(df: pd.DataFrame) -> list[str]:
     return [c for c in df.columns if c.startswith("axis_") and df[c].nunique(dropna=False) > 1]
 
 
-def _failures(out: Path, df: pd.DataFrame, controller: str | None) -> list[str]:
+def _failures(df: pd.DataFrame) -> list[str]:
     """
-    Returns the reasons of the failures and the links to the timelines of the first failed trials.
+    Returns the table of the reasons of the failures.
     """
     counts = plots.reason_of(df=df).loc[lambda s: s != ""].value_counts()
     if not len(counts):
         return []
 
-    parts = ["## Failures", markdown_table(header=["Reason", "Trials"], rows=[[reason, str(n)] for reason, n in counts.items()])]
-    links = plots.failure_timelines(out=out, df=df, controller=controller)
-    if links:
-        parts += ["Timelines of the first failed trials (interactive) :", "\n".join(f"- [{label}]({link})" for label, link in links)]
+    return ["## Failures", markdown_table(header=["Reason", "Trials"], rows=[[reason, str(n)] for reason, n in counts.items()])]
+
+
+def trials_section(out: Path, frames: dict[str, pd.DataFrame], sources: dict[str, tuple[Path, str]]) -> list[str]:
+    """
+    Returns the plots of a few trials : the first failed ones, then the ones with the largest velocity error.
+    """
+    links = plots.trial_plots(out=out, frames=frames, sources=sources, trials=plots.select_trials(frames=frames))
+    if not links:
+        return []
+
+    parts = ["## Trial plots", "The first failed trials, then the trials with the largest velocity error. Dashed : the command. Dotted vertical lines : falls. Orange : pushes."]
+    for trial, images in links.items():
+        frame = next(df for df in frames.values() if (df["id"] == trial).any())
+        parts += [f"### {plots.trial_label(df=frame, trial=trial)}", "\n\n".join(f"![{title}]({link})" for title, link in images)]
 
     return parts
 

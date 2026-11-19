@@ -208,7 +208,7 @@ def write_scene(base: dict[str, Any], key: str, out: Path) -> Path:
     terrain = spec["terrain"]
     if terrain not in ("flat", None):
         ground = rp["environments"].get("ground", {})
-        rp.setdefault("environments", {})["terrain"] = {"type": "terrain", "mu": ground.get("mu", 1.0), **({"color": ground["color"]} if "color" in ground else {}), **terrain}
+        rp.setdefault("environments", {})["terrain"] = {"type": "terrain", "mu": ground.get("mu", 1.0), **({"color": list(ground["color"])} if "color" in ground else {}), **terrain}
 
         # a terrain that goes down replaces the ground plane, which would hide it
         if terrain.get("direction") == "down":
