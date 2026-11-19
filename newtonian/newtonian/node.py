@@ -167,6 +167,7 @@ class NewtonianNode(Node):
             return
         if sim.viewer is not None and sim.viewer.take_reset_request():
             self._rtf_window = None
+            self._delay.clear()
             sim.reset()
         if sim.warmingup:
             self._rtf_window = None
@@ -254,6 +255,7 @@ class NewtonianNode(Node):
             response.message = "no scene"
             return response
         self.sim.reset()
+        self._delay.clear()
         response.success = True
         return response
 
@@ -283,7 +285,7 @@ class NewtonianNode(Node):
     def _publish(self, sim: NewtonianSimulator, sensor: Sensor, msg: Any) -> None:
         """
         """
-        is_ideal = sensor.latency == 0.0 and sensor.jitter == 0.0 and sensor.default_qos == 0.0
+        is_ideal = sensor.latency == 0.0 and sensor.jitter == 0.0 and sensor.drop == 0.0
 
         if is_ideal and not self._delay.get(sensor.name):
             self.publishers_[sensor.name].publish(msg)
@@ -304,7 +306,7 @@ class NewtonianNode(Node):
         """
         tic = sim.sim_time + 1.0e-9
 
-        for name, items, in self._delay.items():
+        for name, items in self._delay.items():
             if not items:
                 continue
 
