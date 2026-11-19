@@ -39,8 +39,10 @@ def _add_wrench(
         wp.atomic_add(body_f, b, wrench[i])
 
 
-def _quat_from_rpy(rpy: tuple[float, float, float]) -> np.ndarray:
-    """ """
+def _quaternion_from_rpy(rpy: tuple[float, float, float]) -> np.ndarray:
+    """
+    Returns the quaternion of the roll, pitch, and yaw 'rpy'.
+    """
     r, p, y = rpy
     cr, sr = math.cos(r / 2), math.sin(r / 2)
     cp, sp = math.cos(p / 2), math.sin(p / 2)
@@ -55,10 +57,14 @@ def _quat_from_rpy(rpy: tuple[float, float, float]) -> np.ndarray:
 
 
 class NewtonianBenchmarker:
-    """ """
+    """
+    Benchmark hooks of the simulator.
+    """
 
     def __init__(self, sim: NewtonianSimulator) -> None:
-        """ """
+        """
+        Allocates the arrays that the captured step reads.
+        """
         self.sim = sim
 
         # pushes: the schedule on the host, the active wrenches on the device
@@ -75,14 +81,18 @@ class NewtonianBenchmarker:
         self._pending_state: dict[str, Any] | None = None
 
     def apply(self, state: newton.State) -> None:
-        """ """
+        """
+        Adds the active push wrenches to 'state.body_f'.
+        """
         if state.body_f is None:
             return
 
         wp.launch(_add_wrench, dim=_SLOTS, inputs=[state.body_f, self._body, self._wrench], device=self.sim.device)
 
     def update(self, t: float) -> None:
-        """ """
+        """
+        Writes the wrenches that are active at time 't'.
+        """
         if self._pending_state is not None:
             state, self._pending_state = self._pending_state, None
             self.set_state(s=state)
@@ -112,7 +122,9 @@ class NewtonianBenchmarker:
         self._wrench.assign(wrench)
 
     def reset(self) -> None:
-        """ """
+        """
+        Clears the pushes.
+        """
         self.pushes = []
         self._pending_state = None
         self._active = ()
@@ -120,7 +132,9 @@ class NewtonianBenchmarker:
         self._wrench.zero_()
 
     def configure(self, request: dict[str, Any]) -> dict[str, Any]:
-        """ """
+        """
+        Applies the keys of 'request'.
+        """
         sim = self.sim
         out: dict[str, Any] = {}
 
@@ -163,12 +177,14 @@ class NewtonianBenchmarker:
 
         # query
         if "query" in request:
-            out.update(self.info(what=request["query"]))
+            out.update(self.describe(what=request["query"]))
 
         return out
 
-    def info(self, what: str) -> dict[str, Any]:
-        """ """
+    def describe(self, what: str) -> dict[str, Any]:
+        """
+        Returns facts about the scene.
+        """
         sim = self.sim
         if what != "info":
             raise ValueError(f"unknown query {what!r}")
@@ -185,7 +201,9 @@ class NewtonianBenchmarker:
         }
 
     def restore_defaults(self) -> None:
-        """ """
+        """
+        Restores the friction, the payload, and the latency.
+        """
         if self._mu0 is not None:
             require(arr=self.sim.model.shape_material_mu).assign(self._mu0)
             self.sim.solver.notify_model_changed(newton.ModelFlags.SHAPE_PROPERTIES)
@@ -199,7 +217,9 @@ class NewtonianBenchmarker:
                     setattr(plugin, key, 0.0)
 
     def set_friction(self, mu: float) -> None:
-        """ """
+        """
+        Sets the friction of all shapes.
+        """
         arr = require(arr=self.sim.model.shape_material_mu)
         if self._mu0 is None:
             self._mu0 = arr.numpy().copy()
@@ -208,7 +228,9 @@ class NewtonianBenchmarker:
         self.sim.solver.notify_model_changed(newton.ModelFlags.SHAPE_PROPERTIES)
 
     def set_payload(self, mass: float) -> None:
-        """ """
+        """
+        Adds 'mass' to the root body.
+        """
         model = self.sim.model
         root = next(iter(self.sim.robots.values())).root
 
@@ -236,7 +258,9 @@ class NewtonianBenchmarker:
         self.sim.solver.notify_model_changed(newton.ModelFlags.BODY_INERTIAL_PROPERTIES)
 
     def set_state(self, s: dict[str, Any]) -> None:
-        """ """
+        """
+        Offsets the pose and the velocity of the base, and the joints.
+        """
         sim = self.sim
         model = sim.model
 
@@ -247,7 +271,7 @@ class NewtonianBenchmarker:
         if "xyz" in s:
             q[0:3] += np.asarray(s["xyz"], dtype=np.float32)
         if "rpy" in s:
-            q[3:7] = quat_mul(a=_quat_from_rpy(rpy=tuple(float(v) for v in s["rpy"])), b=q[3:7].astype(np.float64))
+            q[3:7] = quat_mul(a=_quaternion_from_rpy(rpy=tuple(float(v) for v in s["rpy"])), b=q[3:7].astype(np.float64))
 
         # joints
         if "joint_std" in s:
@@ -272,7 +296,9 @@ class NewtonianBenchmarker:
                 sim.state_0.joint_qd.assign(joint_qd)
 
     def add_push(self, p: dict[str, Any]) -> None:
-        """ """
+        """
+        Schedules a push.
+        """
         sim = self.sim
         body = next(iter(sim.robots.values())).find_body(name=p.get("body"))
 

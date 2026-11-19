@@ -232,7 +232,7 @@ class NewtonianNode(Node):
                 self._step_ms.clear()
 
             if "rtf" in loaded:
-                self._set_rtf(float(loaded["rtf"]))
+                self._set_real_time_factor(float(loaded["rtf"]))
             if loaded.get("timing"):
                 out["timing"] = self._report_timing()
 
@@ -358,7 +358,7 @@ class NewtonianNode(Node):
 
         return out
 
-    def _set_rtf(self, rtf: float) -> None:
+    def _set_real_time_factor(self, rtf: float) -> None:
         """
         Sets the real time factor and timer period.
         """

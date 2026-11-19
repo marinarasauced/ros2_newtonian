@@ -79,7 +79,9 @@ class SensorContactForce(_Base):
         return self._wrench(stamp=stamp, data=self.force)
 
     def update(self, sim: NewtonianSimulator, cache: Cache) -> None:
-        """ """
+        """
+        Reads the contact force, and adds noise to its sum.
+        """
         super().update(sim=sim, cache=cache)
         self.force = self.data.sum(axis=0) + noise(sim=sim, std=self.force_std, shape=3)
 
@@ -105,6 +107,8 @@ class SensorContactScalar(_Base):
         return msg
 
     def update(self, sim: NewtonianSimulator, cache: Cache) -> None:
-        """ """
+        """
+        Reads the contact force, and adds noise to its magnitude.
+        """
         super().update(sim=sim, cache=cache)
         self.magnitude = np.linalg.norm(self.data, axis=1) + noise(sim=sim, std=self.force_std, shape=len(self.names))
