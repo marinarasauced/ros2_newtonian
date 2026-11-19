@@ -10,6 +10,7 @@ import warp as wp
 from newtonian.modules.arrays import require, to_numpy
 from newtonian.modules.params import ParameterError, Parameters
 
+from newtonian.modules.benchmarking.benchmark import NewtonianBenchmarker
 from newtonian.modules.physics.viewer import NewtonianViewer, NewtonianViewerThread, Viewer
 
 from newtonian.modules.plugins.base import Plugin
@@ -155,6 +156,9 @@ class NewtonianSimulator:
         self._state_initial = self.model.state()
         self._state_initial.assign(self.state_0)
 
+        # benchmark
+        self.benchmarker = NewtonianBenchmarker(sim=self)
+
         # build contacts
         if self.solver_plugin.uses_collision_pipeline:
             self.collision_pipeline = newton.CollisionPipeline(self.model, **p.subtree("solver.collision_args").as_kwargs())
@@ -201,6 +205,7 @@ class NewtonianSimulator:
             self.state_0.clear_forces()
             if self.viewer is not None:
                 self.viewer.apply(state=self.state_0)
+            self.benchmarker.apply(state=self.state_0)
 
             # collision
             if self.collision_pipeline is not None and self.contacts is not None:
@@ -276,6 +281,7 @@ class NewtonianSimulator:
         # plugins
         for item in self.plugins:
             item.reset()
+        self.benchmarker.reset()
         self.frame = 0
         self._warmup_remaining = self.warmupsteps
 
@@ -320,6 +326,9 @@ class NewtonianSimulator:
         # apply inputs
         for item in self.inputs:
             item.control(sim=self)
+
+        # benchmark
+        self.benchmarker.update(t=self.sim_time)
 
         # write targets to device
         if self.buffers.dirty:
