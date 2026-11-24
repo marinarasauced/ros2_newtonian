@@ -51,6 +51,10 @@ class Sensor(Plugin):
         self.frame_id: str = p.get(key="frame_id", default="")
         self._due_time = 0.0
 
+        self.latency = p.get_float(key="latency", default=0.0, at_least=0.0)
+        self.jitter = p.get_float(key="jitter", default=0.0, at_least=0.0)
+        self.drop = p.get_float(key="drop", default=0.0, at_least=0.0)
+
     def is_due(self, sim_time: float) -> bool:
         """
         True if the sensor must update.

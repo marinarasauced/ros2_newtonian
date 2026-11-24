@@ -1,0 +1,125 @@
+benchmark:
+
+  ros__parameters:
+
+    rtf: auto
+
+    trial: {duration: 9.0, settle: 1.0, profile: step}
+    seeds: [0, 1]
+    limits: {vx: [-0.5, 1.0], vy: [-0.5, 0.5], wz: [-1.0, 1.0]}
+
+    robot:
+      name: unitree_go2
+      height: 0.27
+      topics: {ground_truth: /go2/sensors/ground_truth, joint_state: /go2/sensors/jointstate, joint_command: /go2/control}
+      defaults:
+        thresholds: {rp_limit: 0.35, fall_tilt: 1.0, fall_height: 0.10}
+        pass: {max_rmse_ss_vx: 0.35, max_rmse_ss_wz: 0.6, max_rp_exceed_frac: 0.2}
+
+      scene:
+        sim:
+          cuda_graph: true
+          device: "cuda:0"                  # 'cpu' | 'cuda:0'
+          viewer: "none"                    # 'gl' | 'none'
+          substeps: 1
+          frame_rate: 500.0
+          viewer_rate: 40.0
+          viewer_thread: false
+          warmup_steps: 420
+          real_time_factor: 1.0
+
+        solver:
+          type: "mujoco"                    # 'featherstone' | 'kamino' | 'mujoco' | 'xpbd'
+
+          mujoco:
+            iterations: 50
+            ls_iterations: 50
+            cone: "elliptic"
+            impratio: 100.0
+            nconmax: 200
+            njmax: 600
+
+        environments:
+          ground: {type: "groundplane", mu: 1.0, color: [0.474, 0.470, 0.474]}
+
+        robots:
+          unitree_go2:
+            type: "mjcf"
+            file: "package://newtonian/descriptions/quadrupeds/unitree_go2/go2.xml"
+            pose: [0.0, 0.0, -0.172, 0.0, 0.0, 0.0]
+            floating: true
+            loader_args:
+              enable_self_collisions: false
+            drives:
+              hips_and_thights: {joints: ["*_hip_joint", "*_thigh_joint"], lazy: false, mode: "position_velocity", ke: 100.0, kd: 2.0, effort_limit: 23.7}
+              calves: {joints: "*_calf_joint", lazy: false, mode: "position_velocity", ke: 100.0, kd: 2.0, effort_limit: 45.43}
+            initial_joint_q:
+              "*_hip_joint": 0.0
+              "*_thigh_joint": 0.9
+              "*_calf_joint": -1.8
+
+        sensors:
+          imu: {type: "imu", site: "imu", rate: 100.0, topic: "/go2/sensors/imu"}
+          odom: {type: "odometry", child_frame_id: "base_link", rate: 250.0, topic: "/go2/sensors/odometry"}
+          joint_states: {type: "jointstate", joints: ["FR_*", "FL_*", "RR_*", "RL_*"], rate: 250.0, topic: "/go2/sensors/jointstate"}
+          ground_truth: {type: "odometry", child_frame_id: "base_link", rate: 250.0, topic: "/go2/sensors/ground_truth"}
+          feet: {type: "contact_scalar", shapes: ["FR", "FL", "RR", "RL"], rate: 100.0, topic: "/go2/sensors/contacts"}
+
+        inputs:
+          joint_targets:
+            type: "jointcommand"
+            topic: "/go2/control"
+
+    controllers:
+      - name: example
+        command: {topic: /go2/base_command}
+        launch: {cmd: ["ros2", "run", "newtonian_benchmarks", "example", "--ros-args", "-p", "use_sim_time:=true", "-p", "rate:=125.0"]}
+        rate_hz: 125
+        startup_timeout: 30
+
+    axes:
+      vx: {frac_of: vx, values: [0.0, 0.3, 0.6, 1.0]}
+      vy: {from_limits: vy, n: 3}
+      wz: {from_limits: wz, n: 5}
+      terrain:
+        - flat
+        - {kind: noise, amplitude_rel: 0.07, seed: 1}
+        - {kind: noise, amplitude_rel: 0.15, seed: 1}
+        - {kind: slope, angle: 10.0, start: 1.5}
+        - {kind: stairs, step_height_rel: 0.2, start: 1.5}
+      friction: [1.0, 0.5, 0.25]
+      push:
+        - none
+        - {dir: "+x", force_bw: 0.4, duration: 0.2, at: 3.0}
+        - {dir: "+x", force_bw: 0.8, duration: 0.2, at: 3.0}
+        - {dir: "-x", force_bw: 0.4, duration: 0.2, at: 3.0}
+        - {dir: "-x", force_bw: 0.8, duration: 0.2, at: 3.0}
+        - {dir: "+y", force_bw: 0.4, duration: 0.2, at: 3.0}
+        - {dir: "+y", force_bw: 0.8, duration: 0.2, at: 3.0}
+        - {dir: "-y", force_bw: 0.4, duration: 0.2, at: 3.0}
+        - {dir: "-y", force_bw: 0.8, duration: 0.2, at: 3.0}
+      cmd_latency: [0.0, 0.01, 0.02, 0.04]
+      sensor_latency: [0.0, 0.02, 0.04]
+      payload_frac: [0.0, 0.15, 0.3]
+
+    suites:
+      smoke:
+        seeds: [0]
+        trial: {duration: 5.0}
+        cross: [{vx: {frac_of: vx, values: [0.0, 0.5]}}, {terrain: [flat, {kind: noise, amplitude_rel: 0.11, seed: 1}]}]
+      velocity:               {cross: [vx, vy, wz]}
+      speed_on_terrain:       {cross: [vx, wz, terrain]}
+      terrain_friction_speed: {cross: [terrain, friction, vx]}
+      push_on_terrain:
+        pass: {require_recovery: 1}
+        cross: [push, terrain, {vx: {frac_of: vx, values: [0.0, 0.5]}}]
+      push_on_friction:
+        pass: {require_recovery: 1}
+        cross: [push, friction, {vx: {frac_of: vx, values: [0.0, 0.5]}}]
+      latency:                {cross: [cmd_latency, sensor_latency, vx]}
+      payload:                {cross: [payload_frac, friction, vx]}
+      everything_random:
+        pass: {require_recovery: 1}
+        sampling: random
+        samples: 120
+        cross: [vx, wz, terrain, friction, push, cmd_latency, sensor_latency, payload_frac]

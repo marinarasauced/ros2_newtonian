@@ -11,7 +11,7 @@ from sensor_msgs.msg import JointState
 
 from newtonian.modules.arrays import to_numpy
 from newtonian.modules.plugins.robots.base import JOINT_TYPES
-from newtonian.modules.plugins.sensors.base import SENSORS, Cache, Sensor
+from newtonian.modules.plugins.sensors.base import SENSORS, Cache, Sensor, noise
 
 if TYPE_CHECKING:
     from newtonian.modules.physics.simulator import NewtonianSimulator
@@ -56,6 +56,10 @@ class _Base(Sensor):
         if self.publish_effort:
             sim.model.request_state_attributes("mujoco:qfrc_actuator")
 
+        self.position_std = p.get_float(key="position_noise_std", default=0.0, at_least=0.0)
+        self.velocity_std = p.get_float(key="velocity_noise_std", default=0.0, at_least=0.0)
+        self.effort_std = p.get_float(key="effort_noise_std", default=0.0, at_least=0.0)
+
     def _jointstate(self, stamp: Time, data: _Data) -> JointState:
         """
         Returns 'data' as a joint state message.
@@ -89,8 +93,16 @@ class SensorJointState(_Base):
         """
         Reads the joint positions, velocities, and efforts.
         """
+        n = len(self.names)
+        q = to_numpy(arr=sim.state.joint_q)[self.joint_q_idx]
+        qd = to_numpy(arr=sim.state.joint_qd)[self.joint_qd_idx]
+        effort = None
+        if self.publish_effort:
+            effort = to_numpy(arr=getattr(sim.state, "mujoco").qfrc_actuator)[self.joint_qd_idx]
+            effort = effort + noise(sim=sim, std=self.effort_std, shape=n)
+
         self.data = _Data(
-            q=to_numpy(arr=sim.state.joint_q)[self.joint_q_idx],
-            qd=to_numpy(arr=sim.state.joint_qd)[self.joint_qd_idx],
-            effort=to_numpy(arr=getattr(sim.state, "mujoco").qfrc_actuator)[self.joint_qd_idx] if self.publish_effort else None,
+            q=q + noise(sim=sim, std=self.position_std, shape=n),
+            qd=qd + noise(sim=sim, std=self.velocity_std, shape=n),
+            effort=effort,
         )

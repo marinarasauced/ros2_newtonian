@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 _PANEL_MARGIN = 10
 _PANEL_ALPHA = 0.7
 _SKY_COLOR = (38.0 / 255.0, 36.0 / 255.0, 38.0 / 255.0)
+_CAMERA_FIELDS = ("pos", "pitch", "yaw", "pivot", "fov")
 
 _STREAM_LOCK = threading.RLock()
 _streams_serialized = False
@@ -80,6 +81,7 @@ class NewtonianViewer:
         self._render_setup()
         self._ui_setup()
         self.attach(sim=sim)
+        self._camera_initial = self._camera_get()
 
     def attach(self, sim: _ViewerHost) -> NewtonianViewer:
         """
@@ -164,6 +166,21 @@ class NewtonianViewer:
         requested, self._reset_requested = self._reset_requested, False
         return requested
 
+    def _camera_get(self) -> dict[str, object]:
+        """
+        Returns a copy of the camera fields in '_CAMERA_FIELDS'.
+        """
+        camera = self.gl.camera
+        return {name: getattr(camera, name) for name in _CAMERA_FIELDS if hasattr(camera, name)}
+
+    def _camera_set(self, fields: dict[str, object]) -> None:
+        """
+        Writes 'fields' to the camera.
+        """
+        camera = self.gl.camera
+        for name, value in fields.items():
+            setattr(camera, name, value)
+
     def _render_setup(self) -> None:
         """
         Sets the sky to one flat color.
@@ -241,6 +258,7 @@ class NewtonianViewer:
             # reset
             if imgui.button("Reset", size):
                 self._reset_requested = True
+                self._camera_set(self._camera_initial)
 
         imgui.end()
 
